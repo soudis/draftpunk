@@ -1,0 +1,10 @@
+{% if upcoming and upcoming.length %}
+<section class="mx-auto max-w-5xl px-6 py-12">
+  <h2 class="font-serif text-3xl text-teal">{{ section.heading[lang] if section.heading and section.heading[lang] else ('Termine' if lang == 'de' else 'Upcoming') }}</h2>
+  <ul class="mt-4 space-y-3">
+    {% for item in upcoming %}
+    <li><a class="text-coral" href="{{ item.href }}">{{ item.title }}</a>{% if item.place %} · {{ item.place }}{% endif %}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}

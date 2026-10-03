@@ -1,0 +1,21 @@
+{
+  "name": "@schlor/importer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "run": "tsx src/cli.ts",
+    "test": "tsx --test src/ical.test.ts src/structure.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@schlor/generator": "workspace:*",
+    "turndown": "^7.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "@types/turndown": "^5.0.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3"
+  }
+}

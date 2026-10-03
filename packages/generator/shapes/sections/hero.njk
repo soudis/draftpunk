@@ -1,0 +1,12 @@
+<section class="bg-navy px-6 py-16 text-white">
+  <div class="mx-auto grid max-w-5xl gap-8 md:grid-cols-2 md:items-center">
+    <div>
+      {% if hero and hero.kicker %}<p class="text-sm uppercase tracking-widest text-gold">{{ hero.kicker }}</p>{% endif %}
+      <h1 class="mt-3 font-serif text-5xl">{{ title }}</h1>
+      {% if hero and hero.lede %}<p class="mt-4 text-xl">{{ hero.lede }}</p>{% endif %}
+    </div>
+    {% if hero and hero.image %}
+    <img class="max-h-80 w-full object-cover" src="{{ hero.image }}" alt="">
+    {% endif %}
+  </div>
+</section>

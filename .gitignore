@@ -1,0 +1,34 @@
+# dependencies
+node_modules
+
+# build output
+.next
+dist
+out
+published
+*.tsbuildinfo
+
+# local site instances (content, generated site, nested git)
+instances/
+
+# databases
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# secrets
+.env
+.env.local
+.env.*.local
+
+# logs and caches
+*.log
+.turbo
+.cache
+coverage
+.pnpm-debug.log*
+
+# os
+.DS_Store
+Thumbs.db

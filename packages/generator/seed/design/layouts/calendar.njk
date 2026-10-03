@@ -1,0 +1,29 @@
+{% extends "shell.njk" %}
+{% block body %}
+<section class="mx-auto max-w-5xl px-6 py-12">
+  <h1 class="font-serif text-4xl text-teal">{{ title }}</h1>
+  <p class="mt-4"><a class="text-coral" href="{{ ical }}">iCal</a></p>
+  {% for month in months %}
+  <h2 class="mt-10 font-serif text-2xl text-teal">{{ month.label }}</h2>
+  <table class="mt-4 w-full text-sm">
+    <thead>
+      <tr>{% for day in weekdays %}<th class="p-2 text-left">{{ day }}</th>{% endfor %}</tr>
+    </thead>
+    <tbody>
+      {% for week in month.weeks %}
+      <tr>
+        {% for day in week %}
+        <td class="border-t border-navy/10 p-2 align-top {{ 'text-navy/30' if not day.inMonth }}">
+          {{ day.label if day.inMonth else '' }}
+          {% for event in day.events %}
+          <a class="mt-1 block text-coral" href="{{ event.href }}">{{ event.title }}</a>
+          {% endfor %}
+        </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endfor %}
+</section>
+{% endblock %}

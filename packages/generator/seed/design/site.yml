@@ -1,0 +1,9 @@
+name: Housing project
+id: housing
+timezone: Europe/Vienna
+languages:
+  - id: de
+    label: Deutsch
+  - id: en
+    label: English
+    optional: true

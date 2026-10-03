@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title | plain }} · {{ name }}</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+  {% for item in alternates %}
+  <link rel="alternate" hreflang="{{ item.hreflang }}" href="{{ item.href }}">
+  {% endfor %}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;700&family=Source+Serif+4:wght@600&display=swap">
+</head>
+<body class="bg-white text-navy font-sans">
+  <header class="border-b border-navy/10">
+    <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-6 py-4">
+      <a class="font-serif text-2xl text-teal" href="{{ prefix }}/">{{ name }}</a>
+      <nav class="flex flex-wrap items-start gap-x-4 gap-y-2 text-sm uppercase tracking-wide">
+        {% for item in nav %}
+          {% if item.children %}
+          <details class="group">
+            <summary class="cursor-pointer list-none hover:text-coral"><a href="{{ item.href }}">{{ item.label }}</a></summary>
+            <ul class="mt-2 space-y-1 normal-case tracking-normal">
+              {% for child in item.children %}
+              <li><a class="hover:text-coral" href="{{ child.href }}">{{ child.label }}</a></li>
+              {% endfor %}
+            </ul>
+          </details>
+          {% else %}
+          <a class="hover:text-coral" href="{{ item.href }}">{{ item.label }}</a>
+          {% endif %}
+        {% endfor %}
+        {% for item in alternates %}
+        <a class="text-coral" href="{{ item.href }}">{{ item.label }}</a>
+        {% endfor %}
+      </nav>
+    </div>
+  </header>
+  <main>
+    {% block body %}{% endblock %}
+  </main>
+  <footer class="mt-16 bg-gold px-6 py-8 text-ink">
+    <div class="mx-auto flex max-w-5xl flex-wrap gap-6 text-sm">
+      {% for item in footer %}
+      <a href="{{ item.href }}">{{ item.label }}</a>
+      {% endfor %}
+      <span class="ml-auto">© {{ year }} {{ name }}</span>
+    </div>
+  </footer>
+</body>
+</html>

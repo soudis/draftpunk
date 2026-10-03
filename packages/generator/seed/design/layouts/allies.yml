@@ -1,0 +1,4 @@
+sections:
+  - shape: title
+  - shape: prose
+  - shape: link-groups

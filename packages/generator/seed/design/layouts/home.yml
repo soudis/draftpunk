@@ -1,0 +1,7 @@
+sections:
+  - shape: hero
+  - shape: prose
+  - shape: cards
+  - shape: band
+  - shape: news
+  - shape: upcoming

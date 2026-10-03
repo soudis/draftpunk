@@ -1,0 +1,5 @@
+sections:
+  - shape: title
+  - shape: pictures
+  - shape: prose
+  - shape: email

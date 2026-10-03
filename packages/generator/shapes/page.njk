@@ -1,0 +1,16 @@
+{% extends "shell.njk" %}
+{% block body %}
+{% for section in sections %}
+  {% if section.shape == 'title' %}{% include "sections/title.njk" %}{% endif %}
+  {% if section.shape == 'prose' %}{% include "sections/prose.njk" %}{% endif %}
+  {% if section.shape == 'hero' %}{% include "sections/hero.njk" %}{% endif %}
+  {% if section.shape == 'cards' %}{% include "sections/cards.njk" %}{% endif %}
+  {% if section.shape == 'band' %}{% include "sections/band.njk" %}{% endif %}
+  {% if section.shape == 'pictures' %}{% include "sections/pictures.njk" %}{% endif %}
+  {% if section.shape == 'email' %}{% include "sections/email.njk" %}{% endif %}
+  {% if section.shape == 'picture-groups' %}{% include "sections/picture-groups.njk" %}{% endif %}
+  {% if section.shape == 'link-groups' %}{% include "sections/link-groups.njk" %}{% endif %}
+  {% if section.shape == 'news' %}{% include "sections/news.njk" %}{% endif %}
+  {% if section.shape == 'upcoming' %}{% include "sections/upcoming.njk" %}{% endif %}
+{% endfor %}
+{% endblock %}

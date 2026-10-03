@@ -1,0 +1,18 @@
+{% if groups and groups.length %}
+<section class="mx-auto max-w-5xl px-6 py-12">
+  {% if section.heading and section.heading[lang] %}<h2 class="font-serif text-3xl text-teal">{{ section.heading[lang] }}</h2>{% endif %}
+  {% for group in groups %}
+  <h2 class="mt-10 font-serif text-2xl text-teal">{{ group.title }}</h2>
+  <ul class="mt-4 grid gap-6 md:grid-cols-3">
+    {% for link in group.links %}
+    <li>
+      <a class="block text-coral" href="{{ link.href }}">
+        {% if link.image %}<img class="mb-2 h-20 w-auto object-contain" src="{{ link.image }}" alt="">{% endif %}
+        {{ link.label }}
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endfor %}
+</section>
+{% endif %}

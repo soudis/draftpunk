@@ -1,0 +1,16 @@
+{% extends "shell.njk" %}
+{% block body %}
+<article class="mx-auto max-w-3xl px-6 py-12">
+  <h1 class="font-serif text-4xl text-teal">{{ title }}</h1>
+  <p class="mt-4 text-navy/80">{{ place }}{% if address %} · {{ address }}{% endif %}</p>
+  <ul class="mt-4 list-disc pl-5">
+    {% for date in dates %}
+    <li>{{ date.start }}{% if date.end %} – {{ date.end }}{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% for field in shownFields %}
+  <p class="mt-2">{{ field.label }}: {{ field.value }}</p>
+  {% endfor %}
+  <div class="prose mt-8">{{ body | safe }}</div>
+</article>
+{% endblock %}

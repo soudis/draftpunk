@@ -1,0 +1,10 @@
+{% if news and news.length %}
+<section class="mx-auto max-w-5xl px-6 py-12">
+  <h2 class="font-serif text-3xl text-teal">{{ section.heading[lang] if section.heading and section.heading[lang] else ('Aktuelles' if lang == 'de' else 'News') }}</h2>
+  <ul class="mt-4 space-y-3">
+    {% for item in news %}
+    <li><a class="text-coral" href="{{ item.href }}">{{ item.title }}</a> <span class="text-sm text-navy/70">{{ item.date }}</span></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}

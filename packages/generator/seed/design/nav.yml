@@ -1,0 +1,22 @@
+menu:
+  - href: /
+    label:
+      de: Start
+      en: Home
+  - href: /kontakt/
+    label:
+      de: Kontakt
+      en: Contact
+  - href: /kalender/
+    label:
+      de: Kalender
+      en: Calendar
+footer:
+  - href: /impressum/
+    label:
+      de: Impressum
+      en: Imprint
+  - href: /datenschutz/
+    label:
+      de: Datenschutz
+      en: Privacy

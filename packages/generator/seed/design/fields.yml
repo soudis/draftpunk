@@ -1,0 +1,15 @@
+- id: categories
+  label:
+    de: Kategorien
+    en: Categories
+  show: false
+  multiple: true
+  options:
+    - id: meeting
+      label:
+        de: Treffen
+        en: Meeting
+    - id: workshop
+      label:
+        de: Workshop
+        en: Workshop

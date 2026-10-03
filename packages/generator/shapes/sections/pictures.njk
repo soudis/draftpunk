@@ -1,0 +1,10 @@
+{% if images and images.length %}
+<ul class="mx-auto mt-8 grid max-w-5xl gap-4 px-6 md:grid-cols-2">
+  {% for image in images %}
+  <li>
+    <img class="w-full object-cover" src="{{ image.src }}" alt="{{ image.caption or '' }}">
+    {% if image.caption %}<p class="mt-1 text-sm text-navy/70">{{ image.caption }}</p>{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}

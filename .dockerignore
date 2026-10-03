@@ -1,0 +1,12 @@
+node_modules
+**/.next
+instances
+dist
+published
+.git
+*.sqlite
+.env
+.env.local
+**/*.md
+!packages/**/*.md
+!GLOSSARY.md

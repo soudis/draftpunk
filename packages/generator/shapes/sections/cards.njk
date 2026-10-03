@@ -1,0 +1,16 @@
+{% if cards and cards.length %}
+<section class="mx-auto max-w-5xl px-6 py-12">
+  {% if section.heading and section.heading[lang] %}<h2 class="font-serif text-3xl text-teal">{{ section.heading[lang] }}</h2>{% endif %}
+  <ul class="mt-6 grid gap-6 md:grid-cols-3">
+    {% for card in cards %}
+    <li class="border border-navy/10">
+      {% if card.image %}<a href="{{ card.href }}"><img class="h-40 w-full object-cover" src="{{ card.image }}" alt=""></a>{% endif %}
+      <div class="p-4">
+        <h3 class="font-serif text-xl text-teal"><a href="{{ card.href }}">{{ card.title }}</a></h3>
+        {% if card.text %}<p class="mt-2 text-sm">{{ card.text }}</p>{% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}

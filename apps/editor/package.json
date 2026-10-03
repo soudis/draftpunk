@@ -1,0 +1,33 @@
+{
+  "name": "@schlor/editor",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test lib/session.test.ts lib/publish.test.ts lib/changes.test.ts lib/draft.test.ts lib/public-url.test.ts lib/gemini.test.ts lib/activity.test.ts lib/api-error.test.ts lib/mode.test.ts lib/events-tool.test.ts lib/content-search.test.ts lib/sessions.test.ts lib/chat-name.test.ts lib/read-website.test.ts lib/chat-pieces.test.ts lib/chat-markdown.test.ts lib/pictures.test.ts lib/correct.test.ts lib/delete-content.test.ts lib/layout-guard.test.ts lib/prompt.test.ts lib/model-settings.test.ts lib/model-catalog.test.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "^1.0.22",
+    "@ai-sdk/react": "^2.0.80",
+    "@schlor/generator": "workspace:*",
+    "ai": "^5.0.80",
+    "better-sqlite3": "^12.4.1",
+    "next": "^16.3.5",
+    "openid-client": "^6.8.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.13.4",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3"
+  }
+}
