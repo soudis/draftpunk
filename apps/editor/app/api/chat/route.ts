@@ -53,8 +53,8 @@ export async function POST(request: Request) {
     system: systemPrompt(mode, root),
     messages: await convertToModelMessages(body.messages),
     tools: toolsFor(mode, root),
-    stopWhen: stepCountIs(12),
-    prepareStep: ({ stepNumber }) => (stepNumber >= 11 ? { toolChoice: 'none' } : {}),
+    stopWhen: stepCountIs(40),
+    prepareStep: ({ stepNumber }) => (stepNumber >= 39 ? { toolChoice: 'none' } : {}),
     abortSignal: request.signal,
     experimental_repairToolCall: repairUnavailableTool(mode),
   })

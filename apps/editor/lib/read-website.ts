@@ -51,7 +51,7 @@ export async function readWebsite(input: string, fetchPage: FetchPage = fetch, r
       continue
     }
   }
-  return summarizePage(page.url, page.body, css.join('\n'))
+  return presentPage(page.url, page.body, css.join('\n'))
 }
 
 export async function assertPublicUrl(input: string, resolve: Resolve = resolvePublic): Promise<URL> {
@@ -70,33 +70,25 @@ export async function assertPublicUrl(input: string, resolve: Resolve = resolveP
   return url
 }
 
-export function summarizePage(url: string, html: string, appearance: string): string {
-  const title = textContent(matchOne(html, /<title[^>]*>([\s\S]*?)<\/title>/i) ?? '')
-  const headings = [...html.matchAll(/<h([1-3])[^>]*>([\s\S]*?)<\/h\1>/gi)]
-    .map((match) => textContent(match[2] ?? ''))
-    .filter(Boolean)
-    .slice(0, 12)
-  const region = matchOne(html, /<(?:nav|header)[^>]*>[\s\S]{0,12000}?<\/(?:nav|header)>/i) ?? html.slice(0, 12000)
-  const links = [...region.matchAll(/<a\s[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
-    .map((match) => {
-      const label = textContent(match[2] ?? '')
-      return label ? `${label} → ${match[1]}` : ''
-    })
-    .filter(Boolean)
-    .slice(0, 25)
-  const inline = extractAppearance(inlineCss(html))
-  const style = [inline, appearance].filter(Boolean).join('\n').slice(0, 6000)
-  const excerpt = textContent(html.replace(/<(?:script|style|noscript)[^>]*>[\s\S]*?<\/(?:script|style|noscript)>/gi, ' ')).slice(0, 4000)
-  return [
-    `URL: ${url}`,
-    title ? `Title: ${title}` : '',
-    headings.length ? `Headings:\n${headings.map((heading) => `- ${heading}`).join('\n')}` : '',
-    links.length ? `Links:\n${links.map((link) => `- ${link}`).join('\n')}` : '',
-    style ? `Colors and type:\n${style}` : '',
-    excerpt ? `Text:\n${excerpt}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n\n')
+const PAGE_HTML_CAP = 80_000
+
+export function presentPage(url: string, html: string, appearance: string): string {
+  const prepared = capHtml(preparePageHtml(html, url), PAGE_HTML_CAP)
+  const style = [extractAppearance(inlineCss(html)), appearance].filter(Boolean).join('\n').slice(0, 6000)
+  return [`URL: ${url}`, prepared, style ? `Colors and type:\n${style}` : ''].filter(Boolean).join('\n\n')
+}
+
+export function preparePageHtml(html: string, pageUrl: string): string {
+  const revealed = revealEmails(html)
+  const stripped = revealed
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<noscript\b[^>]*>[\s\S]*?<\/noscript>/gi, '')
+  const withPictures = stripped
+    .replace(/<img\b[^>]*>/gi, (tag) => collapsePicture(tag, pageUrl))
+    .replace(/<source\b[^>]*>/gi, (tag) => collapseSource(tag, pageUrl))
+  const absolute = absolutizeTags(withPictures, pageUrl)
+  return fillMailtoText(absolute)
 }
 
 export function extractAppearance(css: string): string {
@@ -170,15 +162,189 @@ function inlineCss(html: string): string {
 }
 
 function attribute(tag: string, name: string): string {
-  return tag.match(new RegExp(`${name}\\s*=\\s*["']([^"']+)["']`, 'i'))?.[1] ?? ''
+  return tag.match(new RegExp(`(?:^|\\s)${name}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, 'i'))?.[2] ?? ''
+}
+
+function attributePattern(name: string): RegExp {
+  return new RegExp(`\\s${name}\\s*=\\s*(["'])[\\s\\S]*?\\1`, 'i')
+}
+
+function setAttribute(tag: string, name: string, value: string): string {
+  const written = ` ${name}="${value.replace(/"/g, '&quot;')}"`
+  if (attributePattern(name).test(tag)) return tag.replace(attributePattern(name), written)
+  return tag.replace(/\s*\/?>$/, `${written}>`)
+}
+
+function removeAttribute(tag: string, name: string): string {
+  return tag.replace(attributePattern(name), '')
+}
+
+function capHtml(html: string, max: number): string {
+  if (html.length <= max) return html
+  const slice = html.slice(0, max)
+  const close = slice.lastIndexOf('>')
+  return close > max - 200 ? slice.slice(0, close + 1) : slice
+}
+
+function revealEmails(html: string): string {
+  return html.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, (whole) => {
+    const open = whole.match(/^<a\b[^>]*>/i)?.[0] ?? ''
+    const email = emailFromTag(open) || emailFromMarkup(whole)
+    if (!email) return whole
+    let opened = setAttribute(open, 'href', `mailto:${email}`)
+    opened = removeAttribute(opened, 'data-enc-email')
+    opened = removeAttribute(opened, 'data-cfemail')
+    return whole.replace(/^<a\b[^>]*>/i, opened)
+  })
+}
+
+function emailFromTag(tag: string): string {
+  const encoded = attribute(tag, 'data-enc-email')
+  if (encoded) return decodeRot13Email(encoded)
+  return decodeCfEmail(cfHex(tag))
+}
+
+function emailFromMarkup(html: string): string {
+  const cf = decodeCfEmail(html.match(/\sdata-cfemail=(["'])([0-9a-f]+)\1/i)?.[2] ?? '')
+  if (cf) return cf
+  for (const match of html.matchAll(/%[0-9A-Fa-f]{2}(?:%[0-9A-Fa-f]{2})+/g)) {
+    try {
+      const email = decodeURIComponent(match[0]).match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0]
+      if (email) return email
+    } catch {
+      // A broken percent-encoded fragment is not an address.
+    }
+  }
+  return ''
+}
+
+function cfHex(tag: string): string {
+  const encoded = attribute(tag, 'data-cfemail')
+  if (encoded) return encoded
+  return attribute(tag, 'href').match(/email-protection#([0-9a-f]+)/i)?.[1] ?? ''
+}
+
+function decodeRot13Email(value: string): string {
+  const normalized = value.replace(/\s*(?:\[at\]|\(at\)|\{at\})\s*/gi, '@').replace(/\s*\[dot\]\s*/gi, '.')
+  const rotated = normalized.replace(/[A-Za-z]/g, (char) => {
+    const base = char <= 'Z' ? 65 : 97
+    return String.fromCharCode(((char.charCodeAt(0) - base + 13) % 26) + base)
+  })
+  return emailAddress(rotated)
+}
+
+function decodeCfEmail(hex: string): string {
+  const clean = hex.replace(/[^0-9a-f]/gi, '')
+  if (clean.length < 4 || clean.length % 2 !== 0) return ''
+  const bytes = [...clean.matchAll(/../g)].map((pair) => Number.parseInt(pair[0], 16))
+  const key = bytes[0] ?? 0
+  return emailAddress(bytes.slice(1).map((byte) => String.fromCharCode(byte ^ key)).join(''))
+}
+
+function emailAddress(value: string): string {
+  const email = value.trim()
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : ''
+}
+
+function fillMailtoText(html: string): string {
+  return html.replace(/<a\b[^>]*href=(["'])mailto:([^"']+)\1[^>]*>([\s\S]*?)<\/a>/gi, (whole, _quote, email, inner) => {
+    const text = textContent(inner)
+    if (text && !/protected email/i.test(text)) return whole
+    return whole.replace(/>[\s\S]*<\/a>$/i, `>${email}</a>`)
+  })
+}
+
+function collapsePicture(tag: string, pageUrl: string): string {
+  const url = largestPicture(pictureCandidates(tag, pageUrl))
+  let next = tag
+  if (url) next = setAttribute(next, 'src', url)
+  for (const name of ['srcset', 'sizes', 'data-src', 'data-lazy-src', 'data-original', 'data-orig-file', 'data-large-file']) {
+    next = removeAttribute(next, name)
+  }
+  return next
+}
+
+function collapseSource(tag: string, pageUrl: string): string {
+  const srcset = attribute(tag, 'srcset')
+  if (!srcset) return tag
+  const url = largestPicture(candidatesFromSrcset(srcset, pageUrl))
+  let next = removeAttribute(tag, 'srcset')
+  next = removeAttribute(next, 'sizes')
+  return url ? setAttribute(next, 'srcset', url) : next
+}
+
+function pictureCandidates(tag: string, pageUrl: string): { url: string; width: number }[] {
+  const found: { url: string; width: number }[] = []
+  for (const name of ['src', 'data-src', 'data-lazy-src', 'data-original', 'data-orig-file', 'data-large-file']) {
+    const value = attribute(tag, name)
+    if (!isPictureUrl(value)) continue
+    found.push({ url: absoluteUrl(value, pageUrl), width: pictureWidth(value, '') })
+  }
+  found.push(...candidatesFromSrcset(attribute(tag, 'srcset'), pageUrl))
+  return found
+}
+
+function candidatesFromSrcset(srcset: string, pageUrl: string): { url: string; width: number }[] {
+  const found: { url: string; width: number }[] = []
+  for (const part of srcset.split(',')) {
+    const bits = part.trim().split(/\s+/)
+    const raw = bits[0] ?? ''
+    if (!isPictureUrl(raw)) continue
+    found.push({ url: absoluteUrl(raw, pageUrl), width: pictureWidth(raw, bits.slice(1).join(' ')) })
+  }
+  return found
+}
+
+function largestPicture(candidates: { url: string; width: number }[]): string {
+  if (candidates.length === 0) return ''
+  const known = candidates.filter((item) => item.width > 0)
+  const pool = known.length > 0 ? known : candidates
+  return pool.reduce((best, item) => (item.width > best.width ? item : best)).url
+}
+
+function pictureWidth(url: string, descriptor: string): number {
+  const declared = /(\d+)w/i.exec(descriptor)?.[1]
+  if (declared) return Number(declared)
+  const sized = /-(\d+)x\d+(?=\.[a-z0-9]+(?:$|\?))/i.exec(url)?.[1]
+  return sized ? Number(sized) : 0
+}
+
+function isPictureUrl(value: string): boolean {
+  return Boolean(value) && !/^(?:data:|javascript:|blob:)/i.test(value)
+}
+
+function absolutizeTags(html: string, pageUrl: string): string {
+  return html.replace(/<[a-z0-9:-]+\b[^>]*>/gi, (tag) => {
+    let next = tag
+    for (const name of ['href', 'src', 'poster', 'action']) {
+      const value = attribute(next, name)
+      if (!value) continue
+      next = setAttribute(next, name, absoluteUrl(value, pageUrl))
+    }
+    const style = attribute(next, 'style')
+    if (style && /url\(/i.test(style)) next = setAttribute(next, 'style', absolutizeStyle(style, pageUrl))
+    return next
+  })
+}
+
+function absolutizeStyle(value: string, pageUrl: string): string {
+  return value.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi, (_all, quote: string, raw: string) => {
+    return `url(${quote}${absoluteUrl(raw, pageUrl)}${quote})`
+  })
+}
+
+function absoluteUrl(value: string, pageUrl: string): string {
+  const trimmed = value.trim()
+  if (!trimmed || /^(?:mailto:|tel:|javascript:|data:|#)/i.test(trimmed)) return trimmed
+  try {
+    return new URL(trimmed, pageUrl).href
+  } catch {
+    return trimmed
+  }
 }
 
 function isHtml(type: string, body: string): boolean {
   return type.includes('text/html') || type.includes('application/xhtml') || /^\s*</.test(body)
-}
-
-function matchOne(text: string, pattern: RegExp): string | undefined {
-  return text.match(pattern)?.[0]
 }
 
 function textContent(html: string): string {
