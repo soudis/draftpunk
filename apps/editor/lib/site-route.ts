@@ -18,7 +18,14 @@ export function toPreviewPath(pathname: string): string {
 }
 
 export function rewritePreviewUrls(text: string): string {
-  return text.replace(/(^|["'(\s])\/(?!\/|preview\/)/g, '$1/preview/')
+  const withAttributes = text.replace(/(\s[\w:-]+\s*=\s*)(["'])([\s\S]*?)\2/g, (_full, before: string, quote: string, value: string) => {
+    return `${before}${quote}${rewriteAttributeValue(value)}${quote}`
+  })
+  return withAttributes.replace(/url\(\s*(["']?)\/(?!\/|preview\/)/gi, 'url($1/preview/').replace(/@import\s+(["'])\/(?!\/|preview\/)/gi, '@import $1/preview/')
+}
+
+function rewriteAttributeValue(value: string): string {
+  return value.replace(/(^|[\s,])\/(?!\/|preview\/)(?=\S|$)/g, '$1/preview/')
 }
 
 function indexPath(pathname: string): string {
