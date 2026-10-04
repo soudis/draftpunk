@@ -4,6 +4,7 @@ import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { activityLabel, savedChange, unchangedNote } from '@/lib/activity'
+import { toPreviewPath } from '@/lib/site-route'
 import { phraseChange } from '@/lib/correct-phrase'
 import { presentChatError } from '@/lib/api-error'
 import type { Block, Inline } from '@/lib/chat-markdown'
@@ -72,7 +73,7 @@ export function ChatPanel({
   const [undoing, setUndoing] = useState(false)
   const shellRef = useRef<HTMLDivElement>(null)
   const previewRef = useRef<HTMLIFrameElement>(null)
-  const [previewSrc, setPreviewSrc] = useState('/')
+  const [previewSrc, setPreviewSrc] = useState('/preview/')
   const [shownName, setShownName] = useState(siteName)
   const [modelReady, setModelReady] = useState(tokenSet)
   const [settingsOpen, setSettingsOpen] = useState(!tokenSet)
@@ -161,6 +162,7 @@ export function ChatPanel({
       path = previewSrc
     }
     const url = new URL(path, window.location.origin)
+    url.pathname = toPreviewPath(url.pathname)
     url.searchParams.set('v', String(Date.now()))
     setPreviewSrc(`${url.pathname}${url.search}${url.hash}`)
   }

@@ -1,20 +1,15 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { appUrl } from '@/lib/public-url'
 import { openSession } from '@/lib/session'
+import { siteDecision } from '@/lib/site-route'
 
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl
-  if (pathname.startsWith('/auth') || pathname.startsWith('/_next') || pathname === '/favicon.ico') {
-    return NextResponse.next()
-  }
   const session = await openSession(request.cookies.get('schlor_editor')?.value)
-  if (!session) {
-    return NextResponse.redirect(appUrl(request, '/auth/login'))
-  }
-  if (pathname.startsWith('/edit') || pathname.startsWith('/api')) return NextResponse.next()
+  const decision = siteDecision(request.nextUrl.pathname, Boolean(session))
+  if (decision.type === 'next') return NextResponse.next()
+  if (decision.type === 'login') return NextResponse.redirect(appUrl(request, '/auth/login'))
   const rewrite = request.nextUrl.clone()
-  const sitePath = pathname === '/' ? '/index.html' : pathname.endsWith('/') ? `${pathname}index.html` : pathname
-  rewrite.pathname = `/api/site${sitePath}`
+  rewrite.pathname = decision.pathname
   return NextResponse.rewrite(rewrite)
 }
 

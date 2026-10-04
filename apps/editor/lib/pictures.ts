@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import sharp from 'sharp'
 import { readYaml, writeYaml } from '@schlor/generator'
 
 export const PICTURE_BYTE_LIMIT = 8_000_000
@@ -14,7 +15,7 @@ export type PictureRecord = {
   usages: number
 }
 
-type CatalogEntry = { file: string; description?: string; tags?: string[] }
+type CatalogEntry = { file: string; description?: string; tags?: string[]; source?: string; fitWidth?: number }
 
 const EXTENSIONS: Record<PictureKind, string> = {
   jpeg: 'jpg',
@@ -114,6 +115,34 @@ export function storePicture(
   const tags = normalizeTags(input.tags ?? [])
   remember(root, file, description, tags)
   return toRecord(file, { description, tags }, countUsages(root, file))
+}
+
+export async function fitPicture(root: string, file: string, displayedWidth: number): Promise<{ message: string; wrote: boolean }> {
+  if (!Number.isInteger(displayedWidth) || displayedWidth < 1 || displayedWidth > 4096) {
+    throw new Error('Pass the width the page gives the picture, in pixels.')
+  }
+  const current = assertPictureFile(root, picturePath(file))
+  const bytes = new Uint8Array(fs.readFileSync(current.full))
+  const kind = detectPicture(bytes)
+  if (!kind) throw new Error('That file is not a JPEG, PNG, WebP, GIF, or SVG.')
+  const address = `/media/${current.file}`
+  if (kind === 'gif' || kind === 'svg') return { message: `Left ${address} unchanged. A ${kind === 'gif' ? 'GIF' : 'SVG'} is not resized.`, wrote: false }
+  const target = displayedWidth * 2
+  const width = await orientedWidth(bytes)
+  if (width <= target) return { message: `Left ${address} unchanged. It is already ${width} px wide, and this place needs ${target} px.`, wrote: false }
+  const existing = findFit(root, current.file, target)
+  if (existing) return { message: `Use /media/${existing}. It already fits this place at ${target} px wide.`, wrote: false }
+  const fitted = await sharp(bytes).rotate().resize({ width: target, withoutEnlargement: true }).webp({ quality: 80 }).toBuffer()
+  const stem = stemFromFilename(current.file.slice(0, -path.posix.extname(current.file).length))
+  const meta = catalogByFile(root).get(current.file)
+  const saved = storePicture(root, {
+    bytes: new Uint8Array(fitted),
+    filename: `${stem}-${target}.webp`,
+    description: meta?.description ?? '',
+    tags: meta?.tags ?? [],
+  })
+  rememberFit(root, saved.file, current.file, target)
+  return { message: `Use ${saved.address}. It is ${target} px wide, made from ${address}.`, wrote: true }
 }
 
 export function updatePicture(
@@ -232,12 +261,14 @@ function readCatalog(root: string): CatalogEntry[] {
 
 function writeCatalog(root: string, entries: CatalogEntry[]): void {
   const kept = entries
-    .map((entry) => ({
-      file: entry.file,
-      description: normalizeDescription(entry.description ?? ''),
-      tags: normalizeTags(entry.tags ?? []),
-    }))
-    .filter((entry) => entry.description || entry.tags.length > 0)
+    .map((entry) => {
+      const description = normalizeDescription(entry.description ?? '')
+      const tags = normalizeTags(entry.tags ?? [])
+      const source = cleanSource(entry.source)
+      const fitWidth = source && Number.isInteger(entry.fitWidth) && (entry.fitWidth ?? 0) > 0 ? entry.fitWidth : undefined
+      return { file: entry.file, description, tags, source: fitWidth ? source : undefined, fitWidth }
+    })
+    .filter((entry) => entry.description || entry.tags.length > 0 || entry.source)
     .sort((a, b) => a.file.localeCompare(b.file))
   if (kept.length === 0) {
     fs.rmSync(catalogPath(root), { force: true })
@@ -255,9 +286,42 @@ function catalogByFile(root: string): Map<string, { description: string; tags: s
 }
 
 function remember(root: string, file: string, description: string, tags: string[], previous = file): void {
-  const catalog = readCatalog(root).filter((entry) => entry.file !== previous && entry.file !== file)
-  catalog.push({ file, description, tags })
+  const catalog = readCatalog(root)
+    .map((entry) => (previous !== file && entry.source === previous ? { ...entry, source: file } : entry))
+    .filter((entry) => entry.file !== previous && entry.file !== file)
+  const prior = readCatalog(root).find((entry) => entry.file === previous)
+  catalog.push({ file, description, tags, source: prior?.source, fitWidth: prior?.fitWidth })
   writeCatalog(root, catalog)
+}
+
+function rememberFit(root: string, file: string, source: string, fitWidth: number): void {
+  const catalog = readCatalog(root).filter((entry) => entry.file !== file)
+  const prior = readCatalog(root).find((entry) => entry.file === file)
+  catalog.push({ file, description: prior?.description ?? '', tags: prior?.tags ?? [], source, fitWidth })
+  writeCatalog(root, catalog)
+}
+
+function findFit(root: string, source: string, fitWidth: number): string | null {
+  for (const entry of readCatalog(root)) {
+    if (entry.source !== source || entry.fitWidth !== fitWidth) continue
+    if (fs.existsSync(path.join(mediaDir(root), entry.file))) return entry.file
+  }
+  return null
+}
+
+function cleanSource(source: string | undefined): string | undefined {
+  if (!source) return undefined
+  const normalized = source.replaceAll('\\', '/').replace(/^\/+/, '')
+  if (!normalized || normalized.split('/').some((part) => part === '..' || part === '')) return undefined
+  return normalized
+}
+
+async function orientedWidth(bytes: Uint8Array): Promise<number> {
+  const meta = await sharp(bytes).metadata()
+  const width = meta.width ?? 0
+  const height = meta.height ?? 0
+  const turned = meta.orientation !== undefined && meta.orientation >= 5 && meta.orientation <= 8
+  return turned ? height : width
 }
 
 function toRecord(file: string, meta: { description: string; tags: string[] } | undefined, usages: number): PictureRecord {

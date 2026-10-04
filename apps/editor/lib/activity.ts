@@ -9,6 +9,7 @@ const SITE_WRITES = new Set([
   'delete_place',
   'set_homepage_news',
   'save_picture',
+  'fit_picture',
   'discard_picture',
   'accept_setup',
 ])

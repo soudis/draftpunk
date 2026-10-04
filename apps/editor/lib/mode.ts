@@ -19,6 +19,7 @@ const CONTENT_TOOLS = new Set([
   'list_pictures',
   'read_picture',
   'save_picture',
+  'fit_picture',
   'discard_picture',
 ])
 const SETUP_TOOLS = new Set(['read_site', 'propose_setup', 'accept_setup'])
@@ -32,6 +33,7 @@ const CONTENT_WRITES = new Set([
   'delete_place',
   'set_homepage_news',
   'save_picture',
+  'fit_picture',
   'discard_picture',
 ])
 
