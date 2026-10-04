@@ -48,22 +48,59 @@ function hasToken(hay: string, token: string): boolean {
   return new RegExp(`(?:^|[^a-z0-9])${escaped}(?:[^a-z0-9]|$)`).test(hay)
 }
 
+const READER_ATTRIBUTES = ['alt', 'title', 'aria-label', 'placeholder']
+
 function pageProse(content: string): string | null {
-  const stripped = content
-    .replace(/\{%[\s\S]*?%\}/g, ' ')
-    .replace(/\{\{[\s\S]*?\}\}/g, ' ')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-  const chunks = [
-    ...stripped.split(/\n+/),
-    ...[...content.matchAll(/['"`]([^'"`\n]{40,})['"`]/g)].map((match) => match[1]),
-  ]
+  const chunks = [...visibleChunks(content), ...readerAttributeValues(content), ...nunjucksStrings(content)]
   for (const chunk of chunks) {
-    const text = chunk.replace(/\s+/g, ' ').trim()
-    if (text.split(' ').filter(Boolean).length >= 8) return text.slice(0, 80)
+    const sentence = sentenceOf(chunk)
+    if (sentence) return sentence
   }
   return null
+}
+
+function visibleChunks(content: string): string[] {
+  const stripped = content
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/\{%[\s\S]*?%\}/g, ' ')
+    .replace(/\{\{[\s\S]*?\}\}/g, ' ')
+  return stripped
+    .split(/<[^>]+>/)
+    .map((chunk) => chunk.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+}
+
+function readerAttributeValues(content: string): string[] {
+  const values: string[] = []
+  for (const name of READER_ATTRIBUTES) {
+    const pattern = new RegExp(`(?:^|\\s)${name}\\s*=\\s*(['"])([\\s\\S]*?)\\1`, 'gi')
+    for (const match of content.matchAll(pattern)) {
+      if (match[2]) values.push(match[2])
+    }
+  }
+  return values
+}
+
+function nunjucksStrings(content: string): string[] {
+  const values: string[] = []
+  for (const block of content.matchAll(/\{%(?:[\s\S]*?)%\}|\{\{(?:[\s\S]*?)\}\}/g)) {
+    for (const match of block[0].matchAll(/['"`]([^'"`]*)['"`]/g)) {
+      if (match[1]) values.push(match[1])
+    }
+  }
+  return values
+}
+
+function sentenceOf(chunk: string): string | null {
+  const text = chunk.replace(/\s+/g, ' ').trim()
+  const words = text.split(' ').filter(isWord)
+  if (words.length < 8) return null
+  return text.slice(0, 80)
+}
+
+function isWord(token: string): boolean {
+  return /\p{L}/u.test(token) && !/[\d:/-]/u.test(token)
 }
 
 export function guardDesignWrite(root: string, rel: string, content: string): string | null {

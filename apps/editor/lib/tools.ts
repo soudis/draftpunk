@@ -113,7 +113,8 @@ export function contentTools(root: string): ToolSet {
       execute: async () => pages(root),
     }),
     read_page: tool({
-      description: 'Read one language of a page, including its front matter.',
+      description:
+        'Read one language of a page, including its front matter and markdown body. Before write_page, copy slug, lang, title, layout, and the full body from this file.',
       inputSchema: z.object({ slug: z.string(), lang }),
       execute: async ({ slug, lang: language }) => {
         const file = contentPagePath(root, slug, language)
@@ -122,15 +123,16 @@ export function contentTools(root: string): ToolSet {
       },
     }),
     write_page: tool({
-      description: 'Write one language of a page. Layout must already exist. Date marks a news item. Fields such as photos and groups are kept, and any fields you pass replace those keys. A private layout reads these fields as slots, for example {{ slots.badge }}. On a layout or look request, keep the sentences, slots, title, pictures, email, groups, and date, and you may move them. You may fix grammar, tighten a label, take a card title from the first words of a sentence, or add a short label that adds no claim. Ask before you replace a sentence. Words the person asked to change may be rewritten.',
+      description:
+        'Write one language of one page. Always send slug, lang, title, layout, and body together. Never send only body. When the page exists, call read_page first and copy those values, then change only what was asked. Example: {"slug":"trap","lang":"en","title":"TRAP","layout":"article","body":"![Hall](/media/trap-halle-neu.jpg)\\n\\nThe hall is open."}. Layout must already exist. date marks a news item. fields you pass replace those keys, and other stored fields stay. A private layout reads fields as slots, such as badge. On a layout or look request, keep the sentences, slots, title, pictures, email, groups, and date, and you may move them. You may fix grammar, tighten a label, take a card title from the first words of a sentence, or add a short label that adds no claim. Ask before you replace a sentence. Words the person asked to change may be rewritten.',
       inputSchema: z.object({
-        slug: z.string(),
-        lang,
-        title: z.string(),
-        layout: z.string(),
-        date: z.string().optional(),
-        body: z.string(),
-        fields: z.record(z.string(), z.any()).optional(),
+        slug: z.string().describe('Required. Page slug, such as trap.'),
+        lang: z.string().describe('Required. Language id, such as de or en. One language per call.'),
+        title: z.string().describe('Required. Title in that language. Keep the existing title unless asked to change it.'),
+        layout: z.string().describe('Required. Name of a layout that already exists, such as article.'),
+        date: z.string().optional().describe('Optional YYYY-MM-DD. Only for a news item. Omit to leave the page undated.'),
+        body: z.string().describe('Required. Full markdown for this language. A picture is ![caption](/media/name.jpg).'),
+        fields: z.record(z.string(), z.any()).optional().describe('Optional object. Keys you pass replace those keys. Omit to keep stored fields.'),
       }),
       execute: async ({ slug, lang: language, title, layout, date, body, fields }) => {
         const unknown = knownLanguage(root, language)
@@ -191,19 +193,22 @@ export function contentTools(root: string): ToolSet {
     }),
     write_event: tool({
       description:
-        'Write an event series. To change an event that already exists, call read_event and pass that same slug, keeping the title, body, place, categories, fields, and dates the person did not ask to change. On a layout or look request, keep the sentences and the title, and ask before you replace a sentence. Category and field option ids must already exist. Place must already exist. Title and body are maps of language id to text. titleDe and titleEn still fill German and English.',
+        'Write an event. Always send slug, place, categories, and dates together. title and body are objects keyed by language id, such as {"de":"Halle","en":"Hall"}, never a string. titleDe, titleEn, bodyDe, and bodyEn also fill those languages. dates is an array of {"start":"2026-05-01T18:00","end":"2026-05-01T21:00"}, never a string. categories is an array of existing option ids; pass [] when there are none. To change an event, call read_event and pass that same slug, keeping the title, body, place, categories, fields, and dates the person did not ask to change. On a layout or look request, keep the sentences and the title, and ask before you replace a sentence. Place must already exist.',
       inputSchema: z.object({
-        slug: z.string(),
-        title: z.record(z.string(), z.string()).optional(),
-        body: z.record(z.string(), z.string()).optional(),
-        titleDe: z.string().optional(),
-        titleEn: z.string().optional(),
-        bodyDe: z.string().optional(),
-        bodyEn: z.string().optional(),
-        place: z.string(),
-        categories: z.array(z.string()),
-        fields: z.record(z.string(), z.string()).optional(),
-        dates: z.array(z.object({ start: z.string(), end: z.string().optional() })),
+        slug: z.string().describe('Required. Event slug. Same slug as read_event when the event exists.'),
+        title: z.record(z.string(), z.string()).optional().describe('Object of language id to text, such as {"de":"Halle","en":"Hall"}. Never a string.'),
+        body: z.record(z.string(), z.string()).optional().describe('Object of language id to markdown. Never a string.'),
+        titleDe: z.string().optional().describe('Optional German title. Sets title.de.'),
+        titleEn: z.string().optional().describe('Optional English title. Sets title.en.'),
+        bodyDe: z.string().optional().describe('Optional German markdown body. Sets body.de.'),
+        bodyEn: z.string().optional().describe('Optional English markdown body. Sets body.en.'),
+        place: z.string().describe('Required. Slug of a place that already exists.'),
+        categories: z.array(z.string()).describe('Required. Existing category option ids. Pass [] when there are none.'),
+        fields: z.record(z.string(), z.string()).optional().describe('Optional object of field id to an existing option id.'),
+        dates: z.array(z.object({
+          start: z.string().describe('Required ISO date or datetime, such as 2026-05-01T18:00.'),
+          end: z.string().optional().describe('Optional ISO end. Omit for a single moment.'),
+        })).describe('Required array of {start, end?}. Never a string.'),
       }),
       execute: async (input) => {
         assertSlug(input.slug)
@@ -243,14 +248,15 @@ export function contentTools(root: string): ToolSet {
       execute: async ({ slug }) => removeYaml(root, 'events', slug, 'event'),
     }),
     write_place: tool({
-      description: 'Write a place. It may be on the premises or elsewhere. On a layout or look request, keep the name and address unless the person asked to change them.',
+      description:
+        'Write a place. Always send slug and onPremises. name is an object keyed by language id, such as {"de":"Halle","en":"Hall"}, never a string. nameDe and nameEn also fill those languages. address is optional. On a layout or look request, keep the name and address unless the person asked to change them.',
       inputSchema: z.object({
-        slug: z.string(),
-        name: z.record(z.string(), z.string()).optional(),
-        nameDe: z.string().optional(),
-        nameEn: z.string().optional(),
-        address: z.string().optional(),
-        onPremises: z.boolean(),
+        slug: z.string().describe('Required. Place slug.'),
+        name: z.record(z.string(), z.string()).optional().describe('Object of language id to name. Never a string.'),
+        nameDe: z.string().optional().describe('Optional German name. Sets name.de.'),
+        nameEn: z.string().optional().describe('Optional English name. Sets name.en.'),
+        address: z.string().optional().describe('Optional postal address.'),
+        onPremises: z.boolean().describe('Required boolean. True when the place is on the premises.'),
       }),
       execute: async (input) => {
         assertSlug(input.slug)
@@ -539,5 +545,5 @@ export function systemPrompt(mode: EditorMode, root: string): string {
   if (mode === 'setup') {
     return `${shared}\n\nYou are in setup. You may use the content tools, the design tools, read_site, propose_setup, and accept_setup. read_site reads one public page and returns its HTML, with scripts and style blocks removed, absolute addresses, one address per picture, mailto links for protected addresses, and a short colors-and-fonts note. Call read_site again for each further page you need, including a post or a gallery. It does not import a full archive. From a URL, propose languages, which layouts to keep or add, the sections on each layout, event fields, the look, and a first pass of content. Record that with propose_setup and wait. A directive that already names a decision is acceptance for that decision: call accept_setup with that part and leave finish false. Call accept_setup with useRecorded and finish when the person accepts the whole proposal. A layout is an ordered list of sections. Shapes are title, prose, hero, cards, band, pictures, email, picture-groups, link-groups, news, and upcoming. Do not invent a shape. Event, place, calendar, and archive stay. The first language has no URL prefix. A language marked optional does not block publish.`
   }
-  return `${shared}\n\nYou edit the site in one mode. You may change pages, events, places, pictures, and the design in the same reply. Do not call read_site, propose_setup, or accept_setup. read_website reads one public page and returns its HTML, with scripts and style blocks removed, absolute addresses, one address per picture, mailto links for protected addresses, and a short colors-and-fonts note. When the person names a website, call read_website for that page, and call it again for each further page you need, instead of saying you cannot open a URL. A layout is structure and look. It must not hold one page's sentences, a picture address, or a rule that names that page by title, slug, or path. The shell and navigation may keep text that every page shows. They must not name one page. write_design refuses a layout or shell that breaks this. When it refuses, give each named page its own layout, write that page's words, point the page at the new layout, remove the page-specific rules, and write the design file again. Other pages stay on the shared layout. Use a kit layout, an ordered list of sections, when a shape can hold the content. Shapes are title, prose, hero, cards, band, pictures, email, picture-groups, link-groups, news, and upcoming. Do not invent a shape. A private Nunjucks layout is only for a look no shape can hold. It reads {{ slots.name }}. Write those values with write_page fields. Do not put the words in the template. When the person asks for a layout or a look, you may change the structure. Keep each page's sentences and slot values. You may fix grammar, tighten a label, or take a card title from the first words of a sentence. A new phrase may be a short label in the layout or on the page, and it adds no claim. Leave the title in each language unless they asked to change it. Events and places follow the same rule, including their titles. Keep the same pictures, email, groups, and dates, and you may move them. Hold every language to that standard. Words they explicitly ask to change may be rewritten. If the request does not say whether they mean the look or the words, you may change the structure and keep the sentences, and you ask before you replace a sentence. Change a shell or navigation sentence only when they asked to change those words or that part of the shell. When you change a shared layout, every page on it keeps its sentences the same way. A change to a shared layout restyles every page that uses it. To drop a page layout, call replace_layout so those pages move together. The event, calendar, and archive layouts stay; overwrite them instead of removing them. Removing a field does not rewrite existing events. save_picture downloads one picture the person named from a public website. It stores a JPEG, PNG, WebP, GIF, or SVG with the site's other pictures and returns an address such as /media/hof.webp. Do not save every image on a page. Do not put a picture on a page unless the person says which page. Search with list_pictures before downloading a picture that may already be stored. discard_picture removes one picture you name, even when a page still uses it. Pages keep the address. To find a page, event, or place, call search_content with a short phrase, then read that one file. List pages or events when you need every date, such as removing old news and events. Do not read every file. delete_page removes every language of that slug. The home page cannot be removed. delete_event and delete_place remove that one file. A deleted place stays named on its events. A navigation link stays. To change an event, call read_event, then write_event with that same slug. Keep the title, body, place, categories, fields, and dates the person did not ask to change. Do not invent a new slug for an event that already exists. Event files live under content/events and are not design files. Write every language that is not optional. Pick a layout that already exists. Fill the sections that layout declares by moving the existing sentences into them. Event field option ids must already exist. When asked to remove content older than a period, use today in the site timezone. A news item is old when its date is before that cutoff. An event is old when the later of its start and end, across every date, is before that cutoff. Skip pages with no date, events with no dates, places, and pictures unless the person names them. Skip the home page. Delete each match and say what you removed. You may call set_homepage_news in the same reply to drop a deleted news slug. Finish by saying what changed. If you saved nothing, say that nothing was saved.`
+  return `${shared}\n\nYou edit the site in one mode. You may change pages, events, places, pictures, and the design in the same reply. Do not call read_site, propose_setup, or accept_setup. read_website reads one public page and returns its HTML, with scripts and style blocks removed, absolute addresses, one address per picture, mailto links for protected addresses, and a short colors-and-fonts note. When the person names a website, call read_website for that page, and call it again for each further page you need, instead of saying you cannot open a URL. A layout is structure and look. It must not hold one page's sentences, a picture address, or a rule that names that page by title, slug, or path. The shell and navigation may keep text that every page shows. They must not name one page. write_design refuses a layout or shell that breaks this. When it refuses, give each named page its own layout, write that page's words, point the page at the new layout, remove the page-specific rules, and write the design file again. Other pages stay on the shared layout. Use a kit layout, an ordered list of sections, when a shape can hold the content. Shapes are title, prose, hero, cards, band, pictures, email, picture-groups, link-groups, news, and upcoming. Do not invent a shape. A private Nunjucks layout is only for a look no shape can hold. It reads {{ slots.name }}. Write those values with write_page fields. Do not put the words in the template. When the person asks for a layout or a look, you may change the structure. Keep each page's sentences and slot values. You may fix grammar, tighten a label, or take a card title from the first words of a sentence. A new phrase may be a short label in the layout or on the page, and it adds no claim. Leave the title in each language unless they asked to change it. Events and places follow the same rule, including their titles. Keep the same pictures, email, groups, and dates, and you may move them. Hold every language to that standard. Words they explicitly ask to change may be rewritten. If the request does not say whether they mean the look or the words, you may change the structure and keep the sentences, and you ask before you replace a sentence. Change a shell or navigation sentence only when they asked to change those words or that part of the shell. When you change a shared layout, every page on it keeps its sentences the same way. A change to a shared layout restyles every page that uses it. To drop a page layout, call replace_layout so those pages move together. The event, calendar, and archive layouts stay; overwrite them instead of removing them. Removing a field does not rewrite existing events. save_picture downloads one picture the person named from a public website. It stores a JPEG, PNG, WebP, GIF, or SVG with the site's other pictures and returns an address such as /media/hof.webp. Do not save every image on a page. Do not put a picture on a page unless the person says which page. Search with list_pictures before downloading a picture that may already be stored. discard_picture removes one picture you name, even when a page still uses it. Pages keep the address. To find a page, event, or place, call search_content with a short phrase, then read that one file. List pages or events when you need every date, such as removing old news and events. Do not read every file. delete_page removes every language of that slug. The home page cannot be removed. delete_event and delete_place remove that one file. A deleted place stays named on its events. A navigation link stays. To change an event, call read_event, then write_event with that same slug. Keep the title, body, place, categories, fields, and dates the person did not ask to change. Do not invent a new slug for an event that already exists. Event files live under content/events and are not design files. Write every language that is not optional. Pick a layout that already exists. write_page requires slug, lang, title, layout, and body together. Never send only the body. write_event requires slug, place, categories, and dates. Its title and body are objects keyed by language id, not strings. write_place requires slug and onPremises. Its name is an object keyed by language id, not a string. Fill the sections that layout declares by moving the existing sentences into them. Event field option ids must already exist. When asked to remove content older than a period, use today in the site timezone. A news item is old when its date is before that cutoff. An event is old when the later of its start and end, across every date, is before that cutoff. Skip pages with no date, events with no dates, places, and pictures unless the person names them. Skip the home page. Delete each match and say what you removed. You may call set_homepage_news in the same reply to drop a deleted news slug. Finish by saying what changed. If you saved nothing, say that nothing was saved.`
 }
