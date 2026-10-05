@@ -426,11 +426,16 @@ textarea {
 }
 .preview { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--canvas); }
 .preview iframe { width: 100%; height: 100%; border: 0; background: white; }
-.correct-toggle {
+.edit-mode {
   position: absolute;
   z-index: 2;
   top: 12px;
-  right: 12px;
+  left: 12px;
+}
+.edit-mode label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-height: 40px;
   padding: 8px 14px;
   border: 1px solid var(--line);
@@ -441,16 +446,66 @@ textarea {
   cursor: pointer;
   box-shadow: 0 1px 4px #1c1c1f22;
 }
-.correct-toggle[aria-pressed="true"] {
+.edit-mode input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+.edit-mode-switch {
+  width: 32px;
+  height: 18px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--soft);
+  position: relative;
+  flex: none;
+}
+.edit-mode-switch::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
   background: var(--ink);
-  color: var(--surface);
+}
+.edit-mode input:checked + .edit-mode-switch {
+  background: var(--ink);
   border-color: var(--ink);
 }
+.edit-mode input:checked + .edit-mode-switch::after {
+  transform: translateX(14px);
+  background: var(--surface);
+}
+.edit-mode label:has(input:focus-visible) { outline: 2px solid var(--ink); outline-offset: 2px; }
+.edit-mode-tip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: max-content;
+  max-width: 260px;
+  padding: 8px 12px;
+  background: var(--ink);
+  color: var(--surface);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.4;
+  opacity: 0;
+  pointer-events: none;
+}
+.edit-mode:hover .edit-mode-tip,
+.edit-mode:focus-within .edit-mode-tip { opacity: 1; }
 .correct-note {
   position: absolute;
   z-index: 2;
   top: 60px;
-  right: 12px;
+  left: 12px;
   max-width: 280px;
   margin: 0;
   padding: 8px 12px;

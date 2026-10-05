@@ -464,17 +464,25 @@ export function ChatPanel({
       />
       <section className="preview">
         <iframe title="Draft preview" ref={previewRef} src={previewSrc} onLoad={() => syncCorrectionRef.current()} />
-        <button
-          type="button"
-          className="correct-toggle"
-          aria-pressed={correcting}
-          onClick={() => {
-            setCorrectError('')
-            setCorrecting((value) => !value)
-          }}
-        >
-          Correct text
-        </button>
+        <div className="edit-mode">
+          <label>
+            <input
+              type="checkbox"
+              role="switch"
+              checked={correcting}
+              aria-describedby="edit-mode-tip"
+              onChange={() => {
+                setCorrectError('')
+                setCorrecting((value) => !value)
+              }}
+            />
+            <span className="edit-mode-switch" aria-hidden="true" />
+            Edit Mode
+          </label>
+          <span className="edit-mode-tip" id="edit-mode-tip" role="tooltip">
+            Turn this on to change a sentence in the preview. The draft saves that change. Links stay put while this is on.
+          </span>
+        </div>
         {correctError ? <p className="correct-note">{correctError}</p> : null}
       </section>
     </div>

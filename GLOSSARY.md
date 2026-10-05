@@ -65,7 +65,7 @@ A view in the editor that lists the site's pictures. You can upload a picture th
 _Avoid_: library, gallery, asset manager
 
 **Layout**:
-A page shape the design owns, chosen by the content. It does not hold one page's sentences, picture addresses, or a rule that names that page. It may be a list of sections, or, when no section shape can hold the content, a private template that reads that page's slots.
+A page shape the design owns, chosen by the content. It does not hold one page's sentences, picture addresses, or a rule that names that page. It may be a list of sections, or, when no section shape can hold the content, a private template that reads that page's slots. A section list shows fixed page fields and does not contain the markup.
 _Avoid_: template, theme
 
 **Slot**:
@@ -79,6 +79,10 @@ _Avoid_: field, block, component
 **Design**:
 The shell, stylesheet, layouts, design brief, and fields of one site instance. The shell and navigation may keep text that every page shows, and do not name one page.
 _Avoid_: theme, skin, data model
+
+**Design brief**:
+The current shared look of one site, and what each layout is for. Every chat starts from it. It is not a log of edits, and it does not hold one page's sentences.
+_Avoid_: memory, transcript, theme
 
 **Page**:
 Content plus a layout. The home page is the front page. It can be rewritten, and it cannot be removed. When it is edited, or when a layout or the shell that names it is saved, it gets its own layout.

@@ -3,6 +3,8 @@ import path from 'node:path'
 import { tool, type ToolSet } from 'ai'
 import { searchContent } from './content-search'
 import { guardDesignWrite } from './layout-guard'
+import { documentOpacityRefusal } from './page-opacity'
+import { sectionListNote, unusedFieldNote } from './section-fields'
 import { unavailableToolMessage, type EditorMode } from './mode'
 import { suggestPicture } from './picture-vision'
 import { detectPicture, discardPicture, fitPicture, readPicture, searchPictures, stemFromFilename, storePicture } from './pictures'
@@ -80,6 +82,97 @@ function defaultLanguage(root: string): string {
   return readSiteConfig(root).languages[0]?.id ?? 'de'
 }
 
+function languageChoice(root: string): string {
+  const ids = readSiteConfig(root).languages.map((language) => language.id)
+  if (ids.length <= 1) return ids[0] ?? 'de'
+  if (ids.length === 2) return `${ids[0]} or ${ids[1]}`
+  return `${ids.slice(0, -1).join(', ')}, or ${ids[ids.length - 1]}`
+}
+
+function wrotePage(root: string, slug: string, language: string, layout: string, fields: Record<string, unknown> | undefined): string {
+  const parts = [`Wrote page ${slug} (${language}) with layout ${layout}.`]
+  const unused = fields ? layoutFieldNote(root, layout, fields) : ''
+  if (unused) parts.push(unused)
+  const sibling = siblingLanguageNote(root, slug, language, layout)
+  if (sibling) parts.push(sibling)
+  return parts.join(' ')
+}
+
+function layoutFieldNote(root: string, layout: string, fields: Record<string, unknown>): string {
+  if (fs.existsSync(path.join(root, 'design', 'layouts', `${layout}.njk`))) return ''
+  const shapes = layoutShapes(root, layout)
+  if (!shapes) return ''
+  return unusedFieldNote(shapes, fields)
+}
+
+function layoutShapes(root: string, name: string): string[] | null {
+  const file = path.join(root, 'design', 'layouts', `${name}.yml`)
+  if (!fs.existsSync(file)) return null
+  const raw = readYaml<{ sections?: { shape?: string }[] }>(file, {})
+  return (raw.sections ?? []).map((section) => String(section.shape ?? ''))
+}
+
+function layoutLabel(name: string): string {
+  if (name.endsWith('.yml')) return `${name} — section list`
+  if (name.endsWith('.njk')) return `${name} — private template`
+  return name
+}
+
+function readDesignFile(root: string, rel: string): string {
+  const normalized = rel.replaceAll('\\', '/')
+  let file: string
+  try {
+    file = designFilePath(root, normalized)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Could not read that design file.'
+    if (message.startsWith('Design path is not allowed')) return `${message}. Kit shapes are not a file in the site.`
+    return message
+  }
+  if (!fs.existsSync(file)) return missingDesign(root, normalized)
+  const text = fs.readFileSync(file, 'utf8')
+  const layout = /^layouts\/([a-z0-9-]+)\.yml$/u.exec(normalized)
+  if (!layout) return text
+  const shapes = layoutShapes(root, layout[1])
+  if (!shapes) return text
+  const template = path.join(root, 'design', 'layouts', `${layout[1]}.njk`)
+  const templatePath = fs.existsSync(template) ? `layouts/${layout[1]}.njk` : null
+  return `${text.trimEnd()}\n\n${sectionListNote(shapes, templatePath)}`
+}
+
+function missingDesign(root: string, rel: string): string {
+  const match = /^layouts\/([a-z0-9-]+)\.(njk|yml)$/u.exec(rel)
+  if (match) {
+    const other = match[2] === 'njk' ? 'yml' : 'njk'
+    const otherPath = `layouts/${match[1]}.${other}`
+    if (fs.existsSync(path.join(root, 'design', otherPath))) return `Missing design/${rel}. ${otherPath} is the file.`
+  }
+  return `Missing design/${rel}.`
+}
+
+function briefLine(rel: string): string {
+  const normalized = rel.replaceAll('\\', '/')
+  if (normalized === 'styles.css' || normalized === 'shell.njk') {
+    return 'Rewrite the shared look in design/brief.md and leave the layout lines.'
+  }
+  const layout = /^layouts\/([a-z0-9-]+)\.(?:njk|yml)$/u.exec(normalized)
+  if (!layout) return ''
+  return `Rewrite only the ${layout[1]} line in design/brief.md. Leave the shared look and the other layout lines. A layout used by one page does not replace the shared look.`
+}
+
+function siblingLanguageNote(root: string, slug: string, language: string, layout: string): string {
+  const notes = readSiteConfig(root).languages
+    .filter((item) => !item.optional && item.id !== language)
+    .map((item) => {
+      const file = contentPagePath(root, slug, item.id)
+      if (!fs.existsSync(file)) return `${item.id} is missing.`
+      const page = readPageFile(file, slug, item.id)
+      if (page.layout !== layout) return `${item.id} still uses layout ${page.layout}.`
+      return ''
+    })
+    .filter(Boolean)
+  return notes.join(' ')
+}
+
 function knownLanguage(root: string, language: string): string | null {
   return readSiteConfig(root).languages.some((item) => item.id === language) ? null : `Unknown language ${language}`
 }
@@ -127,7 +220,7 @@ export function contentTools(root: string): ToolSet {
         'Write one language of one page. Always send slug, lang, title, layout, and body together. Never send only body. When the page exists, call read_page first and copy those values, then change only what was asked. Example: {"slug":"trap","lang":"en","title":"TRAP","layout":"article","body":"![Hall](/media/trap-halle-neu.jpg)\\n\\nThe hall is open."}. Layout must already exist. date marks a news item. fields you pass replace those keys, and other stored fields stay. A private layout reads fields as slots, such as badge. On a layout or look request, keep the sentences, slots, title, pictures, email, groups, and date, and you may move them. You may fix grammar, tighten a label, take a card title from the first words of a sentence, or add a short label that adds no claim. Ask before you replace a sentence. Words the person asked to change may be rewritten.',
       inputSchema: z.object({
         slug: z.string().describe('Required. Page slug, such as trap.'),
-        lang: z.string().describe('Required. Language id, such as de or en. One language per call.'),
+        lang: z.string().optional().describe('Language id, such as de or en. One language per call. Nothing is written when this is missing.'),
         title: z.string().describe('Required. Title in that language. Keep the existing title unless asked to change it.'),
         layout: z.string().describe('Required. Name of a layout that already exists, such as article.'),
         date: z.string().optional().describe('Optional YYYY-MM-DD. Only for a news item. Omit to leave the page undated.'),
@@ -135,17 +228,19 @@ export function contentTools(root: string): ToolSet {
         fields: z.record(z.string(), z.any()).optional().describe('Optional object. Keys you pass replace those keys. Omit to keep stored fields.'),
       }),
       execute: async ({ slug, lang: language, title, layout, date, body, fields }) => {
-        const unknown = knownLanguage(root, language)
+        const id = language?.trim()
+        if (!id) return `Nothing was written. Send lang (${languageChoice(root)}) with slug, title, layout, and body.`
+        const unknown = knownLanguage(root, id)
         if (unknown) return unknown
         pageLayoutsOrThrow(root, layout)
-        const file = contentPagePath(root, slug, language)
-        const existing = fs.existsSync(file) ? readPageFile(file, slug, language).data : {}
+        const file = contentPagePath(root, slug, id)
+        const existing = fs.existsSync(file) ? readPageFile(file, slug, id).data : {}
         const kept = { ...existing }
         delete kept.layout
         delete kept.title
         delete kept.date
         writePageFile(file, { layout, title, date, body, data: { ...kept, ...(fields ?? {}) } })
-        return finish(root, `Wrote page ${slug} (${language}) with layout ${layout}.`)
+        return finish(root, wrotePage(root, slug, id, layout, fields))
       },
     }),
     delete_page: tool({
@@ -426,29 +521,38 @@ export function contentTools(root: string): ToolSet {
 export function designTools(root: string): ToolSet {
   return {
     list_design: tool({
-      description: 'List design files and page layouts.',
+      description: 'List design files and page layouts. Each layout is a section list or a private template.',
       inputSchema: z.object({}),
       execute: async () => {
-        const layouts = fs.readdirSync(path.join(root, 'design', 'layouts'))
+        const layouts = fs.readdirSync(path.join(root, 'design', 'layouts')).sort().map(layoutLabel)
         return { files: ['brief.md', 'styles.css', 'shell.njk', 'nav.yml', 'categories.yml', 'fields.yml', 'site.yml'], layouts }
       },
     }),
     read_design: tool({
-      description: 'Read a design file. Path is relative to design/, for example layouts/article.njk.',
+      description: 'Read a design file. Path is relative to design/, for example layouts/article.yml. A missing layout names the other extension when that file exists. A section list includes the field each section shows.',
       inputSchema: z.object({ path: z.string() }),
-      execute: async ({ path: rel }) => fs.readFileSync(designFilePath(root, rel), 'utf8'),
+      execute: async ({ path: rel }) => readDesignFile(root, rel),
     }),
     write_design: tool({
-      description: 'Overwrite a design file. This restyles every page that uses it. A layout or the shell must not name one page, and a layout must not hold page text or a picture address. On a layout or look request, you may change structure. Keep every page’s sentences. Change a shell or navigation sentence only when the person asked to change those words or that part. Do not use this to delete a layout.',
-      inputSchema: z.object({ path: z.string(), content: z.string().min(1) }),
+      description: 'Overwrite a design file. This restyles every page that uses it. A layout or the shell must not name one page, and a layout must not hold page text or a picture address. On a layout or look request, you may change structure. Keep every page’s sentences. Change a shell or navigation sentence only when the person asked to change those words or that part. Do not use this to delete a layout. A stylesheet that sets opacity 0 on html or body is refused.',
+      inputSchema: z.object({
+        path: z.string().optional().describe('Path relative to design/, such as styles.css or layouts/article.yml. Nothing is written when this is missing.'),
+        content: z.string().min(1),
+      }),
       execute: async ({ path: rel, content }) => {
-        const refused = guardDesignWrite(root, rel, content)
+        const target = rel?.trim()
+        if (!target) return 'Nothing was written. Send path, such as styles.css or layouts/article.yml, with the content.'
+        const refused = guardDesignWrite(root, target, content)
         if (refused) return refused
-        const file = designFilePath(root, rel)
+        if (target.replaceAll('\\', '/') === 'styles.css') {
+          const blank = documentOpacityRefusal(content)
+          if (blank) return blank
+        }
+        const file = designFilePath(root, target)
         const original = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
         fs.writeFileSync(file, content)
         try {
-          return finish(root, `Updated design/${rel}. Every page was regenerated.`)
+          return finish(root, `Updated design/${target}. Every page was regenerated. ${briefLine(target)}`.trim())
         } catch (error) {
           if (original) fs.writeFileSync(file, original)
           else fs.rmSync(file, { force: true })
@@ -562,5 +666,5 @@ export function systemPrompt(mode: EditorMode, root: string): string {
   if (mode === 'setup') {
     return `${shared}\n\nYou are in setup. You may use the content tools, the design tools, read_site, propose_setup, and accept_setup. read_site reads one public page and returns its HTML, with scripts and style blocks removed, absolute addresses, one address per picture, mailto links for protected addresses, and a short colors-and-fonts note. Call read_site again for each further page you need, including a post or a gallery. It does not import a full archive. From a URL, propose languages, which layouts to keep or add, the sections on each layout, event fields, the look, and a first pass of content. Record that with propose_setup and wait. A directive that already names a decision is acceptance for that decision: call accept_setup with that part and leave finish false. Call accept_setup with useRecorded and finish when the person accepts the whole proposal. When you put a picture on a page, call fit_picture with its stored address and the width that place gives it, in CSS pixels, then use the address it returns. A GIF or an SVG stays as stored. A layout is an ordered list of sections. Shapes are title, prose, hero, cards, band, pictures, email, picture-groups, link-groups, news, and upcoming. Do not invent a shape. Event, place, calendar, and archive stay. The first language has no URL prefix. A language marked optional does not block publish.`
   }
-  return `${shared}\n\nYou edit the site in one mode. You may change pages, events, places, pictures, and the design in the same reply. Do not call read_site, propose_setup, or accept_setup. read_website reads one public page and returns its HTML, with scripts and style blocks removed, absolute addresses, one address per picture, mailto links for protected addresses, and a short colors-and-fonts note. When the person names a website, call read_website for that page, and call it again for each further page you need, instead of saying you cannot open a URL. A layout is structure and look. It must not hold one page's sentences, a picture address, or a rule that names that page by title, slug, or path. The shell and navigation may keep text that every page shows. They must not name one page. write_design refuses a layout or shell that breaks this. When it refuses, give each named page its own layout, write that page's words, point the page at the new layout, remove the page-specific rules, and write the design file again. Other pages stay on the shared layout. Use a kit layout, an ordered list of sections, when a shape can hold the content. Shapes are title, prose, hero, cards, band, pictures, email, picture-groups, link-groups, news, and upcoming. Do not invent a shape. A private Nunjucks layout is only for a look no shape can hold. It reads {{ slots.name }}. Write those values with write_page fields. Do not put the words in the template. When the person asks for a layout or a look, you may change the structure. Keep each page's sentences and slot values. You may fix grammar, tighten a label, or take a card title from the first words of a sentence. A new phrase may be a short label in the layout or on the page, and it adds no claim. Leave the title in each language unless they asked to change it. Events and places follow the same rule, including their titles. Keep the same pictures, email, groups, and dates, and you may move them. Hold every language to that standard. Words they explicitly ask to change may be rewritten. If the request does not say whether they mean the look or the words, you may change the structure and keep the sentences, and you ask before you replace a sentence. Change a shell or navigation sentence only when they asked to change those words or that part of the shell. When you change a shared layout, every page on it keeps its sentences the same way. A change to a shared layout restyles every page that uses it. To drop a page layout, call replace_layout so those pages move together. The event, calendar, and archive layouts stay; overwrite them instead of removing them. Removing a field does not rewrite existing events. save_picture downloads one picture the person named from a public website. It stores a JPEG, PNG, WebP, GIF, or SVG with the site's other pictures and returns an address such as /media/hof.webp. Do not save every image on a page. When you put a picture on a page, call fit_picture with its stored address and the width that place gives it, in CSS pixels, then use the address it returns. Do this for a picture already on a page you are writing. A GIF or an SVG stays as stored. Do not fit pictures on pages you are not writing. Do not put a picture on a page unless the person says which page. Search with list_pictures before downloading a picture that may already be stored. discard_picture removes one picture you name, even when a page still uses it. Pages keep the address. To find a page, event, or place, call search_content with a short phrase, then read that one file. List pages or events when you need every date, such as removing old news and events. Do not read every file. delete_page removes every language of that slug. The home page cannot be removed. delete_event and delete_place remove that one file. A deleted place stays named on its events. A navigation link stays. To change an event, call read_event, then write_event with that same slug. Keep the title, body, place, categories, fields, and dates the person did not ask to change. Do not invent a new slug for an event that already exists. Event files live under content/events and are not design files. Write every language that is not optional. Pick a layout that already exists. write_page requires slug, lang, title, layout, and body together. Never send only the body. write_event requires slug, place, categories, and dates. Its title and body are objects keyed by language id, not strings. write_place requires slug and onPremises. Its name is an object keyed by language id, not a string. Fill the sections that layout declares by moving the existing sentences into them. Event field option ids must already exist. When asked to remove content older than a period, use today in the site timezone. A news item is old when its date is before that cutoff. An event is old when the later of its start and end, across every date, is before that cutoff. Skip pages with no date, events with no dates, places, and pictures unless the person names them. Skip the home page. Delete each match and say what you removed. You may call set_homepage_news in the same reply to drop a deleted news slug. Finish by saying what changed. If you saved nothing, say that nothing was saved.`
+  return `${shared}\n\nYou edit the site in one mode. You may change pages, events, places, pictures, and the design in the same reply. Do not call read_site, propose_setup, or accept_setup. read_website reads one public page and returns its HTML, with scripts and style blocks removed, absolute addresses, one address per picture, mailto links for protected addresses, and a short colors-and-fonts note. When the person names a website, call read_website for that page, and call it again for each further page you need, instead of saying you cannot open a URL. A layout is structure and look. It must not hold one page's sentences, a picture address, or a rule that names that page by title, slug, or path. The shell and navigation may keep text that every page shows. They must not name one page. write_design refuses a layout or shell that breaks this. When it refuses, give each named page its own layout, write that page's words, point the page at the new layout, remove the page-specific rules, and write the design file again. Other pages stay on the shared layout. Use a kit layout, an ordered list of sections, when a shape can hold the content. Shapes are title, prose, hero, cards, band, pictures, email, picture-groups, link-groups, news, and upcoming. Do not invent a shape. A private Nunjucks layout is only for a look no shape can hold. It reads {{ slots.name }}. Write those values with write_page fields. Do not put the words in the template. When the person asks for a layout or a look, you may change the structure. Keep each page's sentences and slot values. You may fix grammar, tighten a label, or take a card title from the first words of a sentence. A new phrase may be a short label in the layout or on the page, and it adds no claim. Leave the title in each language unless they asked to change it. Events and places follow the same rule, including their titles. Keep the same pictures, email, groups, and dates, and you may move them. Hold every language to that standard. Words they explicitly ask to change may be rewritten. If the request does not say whether they mean the look or the words, you may change the structure and keep the sentences, and you ask before you replace a sentence. Change a shell or navigation sentence only when they asked to change those words or that part of the shell. When you change a shared layout, every page on it keeps its sentences the same way. A change to a shared layout restyles every page that uses it. read_design of a section list names the field each section shows. Point the page at a layout and fill those fields. Give that page a new layout only when changing the shared one would restyle other pages, or when no shape can hold the structure. Claim a section changed only after its field was written. To drop a page layout, call replace_layout so those pages move together. The event, calendar, and archive layouts stay; overwrite them instead of removing them. Removing a field does not rewrite existing events. save_picture downloads one picture the person named from a public website. It stores a JPEG, PNG, WebP, GIF, or SVG with the site's other pictures and returns an address such as /media/hof.webp. Do not save every image on a page. When you put a picture on a page, call fit_picture with its stored address and the width that place gives it, in CSS pixels, then use the address it returns. Do this for a picture already on a page you are writing. A GIF or an SVG stays as stored. Do not fit pictures on pages you are not writing. Do not put a picture on a page unless the person says which page. Search with list_pictures before downloading a picture that may already be stored. discard_picture removes one picture you name, even when a page still uses it. Pages keep the address. To find a page, event, or place, call search_content with a short phrase, then read that one file. List pages or events when you need every date, such as removing old news and events. Do not read every file. delete_page removes every language of that slug. The home page cannot be removed. delete_event and delete_place remove that one file. A deleted place stays named on its events. A navigation link stays. To change an event, call read_event, then write_event with that same slug. Keep the title, body, place, categories, fields, and dates the person did not ask to change. Do not invent a new slug for an event that already exists. Event files live under content/events and are not design files. Write every language that is not optional. Pick a layout that already exists. write_page requires slug, lang, title, layout, and body together. Never send only the body. write_event requires slug, place, categories, and dates. Its title and body are objects keyed by language id, not strings. write_place requires slug and onPremises. Its name is an object keyed by language id, not a string. Fill the sections that layout declares by moving the existing sentences into them. Event field option ids must already exist. When asked to remove content older than a period, use today in the site timezone. A news item is old when its date is before that cutoff. An event is old when the later of its start and end, across every date, is before that cutoff. Skip pages with no date, events with no dates, places, and pictures unless the person names them. Skip the home page. Delete each match and say what you removed. You may call set_homepage_news in the same reply to drop a deleted news slug. design/brief.md is the shared look, then one line for what each layout is for. It is not a log and it does not hold page sentences. After you change the stylesheet or the shell, rewrite the shared look and leave the layout lines. After you change one layout, rewrite only that layout's line, and add the line when the brief does not mention it yet. A one-page layout change leaves the shared look. When the person asks to update, refine, or enhance the brief, rewrite the brief from the stylesheet, the shell, and the layouts, and see which pages share each layout. Leave page sentences out. A layout used by one page does not replace the shared look. Finish by saying what changed. If you saved nothing, say that nothing was saved.`
 }
