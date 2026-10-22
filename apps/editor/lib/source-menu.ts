@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { pageUrl, readSiteConfig, readYaml, writeYaml } from '@schlor/generator'
-import { listPageSlugs } from '@schlor/generator'
+import { listPageSlugs, readPage } from '@schlor/generator'
 import { normalPath, recordPath, slugFor, splitLanguage } from './import-pages'
 
 export type MenuEntry = { label: string; href: string; children: { label: string; href: string }[] }
@@ -50,7 +50,7 @@ export const MENU_SOURCE = `(() => {
   return entries
 })()`
 
-type Resolver = (path: string) => string | null
+type Resolver = (path: string, label?: string) => string | null
 
 /** What the source's menu becomes: entries that point to pages of this site, outbound links as they are, and what has no page. */
 export function buildNav(
@@ -71,7 +71,7 @@ export function buildNav(
       return null
     }
     if (url.origin !== options.origin) return href
-    const slugUrl = options.resolve(normalPath(url.pathname))
+    const slugUrl = options.resolve(normalPath(url.pathname), label)
     if (!slugUrl) {
       left.push(`${normalPath(url.pathname)} — ${label}`)
       return null
@@ -100,17 +100,34 @@ export function buildNav(
   return { menu, left, copied }
 }
 
-/** The page of this site that a source address became: imported by import_pages, or a page named after the address. */
+const plain = (text: string) => text.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+
+/**
+ * The page of this site that a source address became: one imported by import_pages, the home page, a page named
+ * after the address or after its last part, or the one page whose title is the words of the menu entry. The pages
+ * of the first pass have names of the agent's own, so the last two are what finds them.
+ */
 export function resolverFor(root: string): Resolver {
   const site = readSiteConfig(root)
   const languages = site.languages.map((language) => language.id)
   const record = readYaml<{ pages?: Record<string, string> }>(recordPath(root), {}).pages ?? {}
   const slugs = new Set(listPageSlugs(root))
-  return (address) => {
-    const { lang, rest } = splitLanguage(address, languages)
+  const byTitle = new Map<string, string[]>()
+  for (const slug of slugs) {
+    const page = readPage(root, slug)
+    for (const title of Object.values(page?.title ?? {})) {
+      const key = plain(title)
+      if (key) byTitle.set(key, [...new Set([...(byTitle.get(key) ?? []), slug])])
+    }
+  }
+  return (address, label) => {
+    const { rest } = splitLanguage(address, languages)
     if (rest === '/' && slugs.has('home')) return pageUrl('home', languages[0], site)
-    const slug = record[address] ?? record[rest] ?? (slugs.has(slugFor(rest)) ? slugFor(rest) : undefined)
-    return slug && slugs.has(slug) ? pageUrl(slug, languages[0], site) : null
+    const last = rest.split('/').filter(Boolean).pop() ?? ''
+    const named = [record[address], record[rest], slugFor(rest), slugFor(last)].find((slug) => slug && slugs.has(slug))
+    if (named) return pageUrl(named, languages[0], site)
+    const titled = label ? byTitle.get(plain(label)) : undefined
+    return titled?.length === 1 ? pageUrl(titled[0], languages[0], site) : null
   }
 }
 

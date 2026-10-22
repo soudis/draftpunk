@@ -5,6 +5,7 @@ import path from 'node:path'
 import test from 'node:test'
 import {
   proposalProblems,
+  readProposal,
   recordProposal,
   applyProposal,
   bilingualGaps,
@@ -552,4 +553,20 @@ test('texts are left alone when the languages are not narrowed', () => {
   const notes = applyProposal(root, { site: { name: 'Haus', languages: [{ id: 'de' }, { id: 'en' }] } })
   assert.equal(notes.includes('removed the texts'), false)
   assert.equal(JSON.stringify(readPage(root, 'datenschutz')), before)
+})
+
+test('a proposal may give layouts and pages as one object, or as an object with an entry per name', () => {
+  const root = newSite('housing-lists-')
+  const layout = { purpose: 'Ein Text.', slots: { body: 'markdown' }, template: '{% extends "shell.njk" %}{% block body %}<main>{{ slots.body }}</main>{% endblock %}' }
+  const one = recordProposal(root, { layouts: { name: 'text', ...layout } as never })
+  assert.deepEqual(one, [])
+  const many = recordProposal(root, {
+    layouts: { text: layout, zwei: layout } as never,
+    pages: { 'ueber-uns': { layout: 'text', title: { de: 'Über uns' }, slots: { body: { de: 'Text' } } } } as never,
+  })
+  assert.deepEqual(many, [])
+  const recorded = readProposal(root)
+  assert.deepEqual((recorded.layouts ?? []).map((item) => item.name), ['text', 'zwei'])
+  assert.deepEqual((recorded.pages ?? []).map((item) => item.slug), ['ueber-uns'])
+  assert.throws(() => recordProposal(root, { layouts: 'nonsense: [' as never }), /layouts/)
 })

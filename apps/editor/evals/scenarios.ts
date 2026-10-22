@@ -188,7 +188,8 @@ function menuHasGroups(root: string): Check {
   const nav = readYaml<{ menu?: { children?: unknown[] }[] } | unknown[]>(path.join(root, 'design', 'nav.yml'), {})
   const menu = Array.isArray(nav) ? [] : (nav.menu ?? [])
   const groups = menu.filter((item) => (item.children?.length ?? 0) >= 2).length
-  return { name: 'the menu has the source site\'s groups', ok: groups >= 2, detail: `${groups} groups with sub-entries in ${menu.length} entries` }
+  const shown = (menu as { label?: Record<string, string>; children?: unknown[] }[]).map((item) => `${Object.values(item.label ?? {})[0] ?? '?'}(${item.children?.length ?? 0})`).join(', ')
+  return { name: 'the menu has the source site\'s groups', ok: groups >= 2, detail: `${groups} groups with sub-entries in ${menu.length} entries: ${shown}` }
 }
 
 /** The pages (and the recorded proposal) show no picture from another host, and at least one picture was saved into the site. */

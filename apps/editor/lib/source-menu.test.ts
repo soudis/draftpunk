@@ -140,3 +140,18 @@ test('the main menu is found without a nav element, ahead of a language switch, 
     delete process.env.BROWSER_NO_SANDBOX
   }
 })
+
+test('pages of the first pass, which have names of their own, are found by their last address part or their title', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'schlor-resolve-'))
+  initSite(root)
+  writeYaml(path.join(root, 'design', 'site.yml'), { name: 'Neu', languages: [{ id: 'de', label: 'Deutsch' }] })
+  for (const [slug, title] of [['rechtsstruktur', 'Rechtsstruktur'], ['hauser-und-betriebe', 'Betriebe'], ['info-eins', 'Info'], ['info-zwei', 'Info']]) {
+    writePage(root, { slug, layout: 'article', title: { de: title }, slots: { body: { de: `${title}.` } } })
+  }
+  const resolve = resolverFor(root)
+  assert.equal(resolve('/ueber-uns/rechtsstruktur', 'Rechtsstruktur'), '/rechtsstruktur/')
+  assert.equal(resolve('/unser-grundstueck/betriebe', 'Betriebe'), '/hauser-und-betriebe/')
+  assert.equal(resolve('/x/info', 'Info'), null, 'two pages with that title: not guessed')
+  assert.equal(resolve('/ueber-uns/finanzierung', 'Finanzierung'), null)
+  assert.equal(resolve('/nirgends'), null)
+})

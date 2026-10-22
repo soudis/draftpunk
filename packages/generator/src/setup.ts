@@ -255,6 +255,21 @@ function fromText(value: unknown, name: string): unknown {
 }
 
 /**
+ * A model sometimes sends a list as one object, or as an object that has an entry per name. Both say what a list
+ * says, so they are read as one: a single layout or page, or a name and its details.
+ */
+function toList(value: unknown, idKey: string | null): unknown {
+  if (!idKey || Array.isArray(value) || value === null || typeof value !== 'object') return value
+  const record = value as Record<string, unknown>
+  if (typeof record[idKey] === 'string') return [record]
+  const entries = Object.entries(record)
+  if (entries.length > 0 && entries.every(([, item]) => item !== null && typeof item === 'object' && !Array.isArray(item))) {
+    return entries.map(([key, item]) => ({ [idKey]: key, ...(item as object) }))
+  }
+  return value
+}
+
+/**
  * A model sometimes sends a part of the proposal as the text of a file instead of as data. Read that text,
  * and say plainly what is wrong with anything that cannot be used, instead of writing it into the site.
  */
@@ -271,7 +286,7 @@ export function normalizeProposal(proposal: SetupProposal): SetupProposal {
   }
   for (const key of LIST_KEYS) {
     if (out[key] === undefined) continue
-    out[key] = fromText(out[key], key)
+    out[key] = toList(fromText(out[key], key), key === 'layouts' ? 'name' : key === 'dropLayouts' ? null : 'slug')
     if (!Array.isArray(out[key])) throw new Error(`${key} must be a list`)
   }
   for (const key of ['fields', 'nav'] as const) {
