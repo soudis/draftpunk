@@ -69,7 +69,7 @@ Phase 3 is built:
 - Tool definitions are now about 5.7k tokens and the system prompt about 2.1k, both stable between requests so they are cached.
 - `read_layout` already takes a part. `read_design` takes an offset.
 
-Not built yet: reusable sections shared by several layouts (the starter layouts repeat their markup), the patch tools of Phase 3, and a browser-based check that a slot is visible (Phase 4). The importer package writes the new page format but only knows the old fixed layouts.
+Not built yet: reusable sections shared by several layouts (the starter layouts repeat their markup), and a browser-based check that a slot is visible (Phase 4). The importer package writes the new page format but only knows the old fixed layouts.
 
 ## 3. Phases
 
