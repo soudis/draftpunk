@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { listLayoutNames, readLayout, readPage, writePage } from '@schlor/generator'
-import { contentUntouched, designHoldsNoContent, designUntouched, publishable, sentencesKept, type Scenario } from '../lib/eval'
+import { contentUntouched, designHoldsNoContent, designUntouched, proposalAccepts, publishable, sentencesKept, type Scenario } from '../lib/eval'
 
 const ROOM_DE = [
   'Der Veranstaltungsraum ist ca. 68 m² groß und eignet sich für unterschiedliche Formate.',
@@ -116,7 +116,7 @@ export const scenarios: Scenario[] = [
     mode: 'setup',
     turns: ['Richte die Website anhand von https://schlor.org ein. Gleiche Hauptfarben, ähnliche Struktur. Mach einen Vorschlag.'],
     prepare: () => undefined,
-    checks: ({ root }) => [designHoldsNoContent(root), publishable(root)],
+    checks: ({ root }) => proposalAccepts(root),
   },
 ]
 

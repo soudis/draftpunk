@@ -29,6 +29,7 @@ export {
   checkLayout,
   forkLayout,
   formatCatalog,
+  labelReferences,
   layoutCatalog,
   layoutExists,
   listLayoutNames,
@@ -41,8 +42,8 @@ export {
   writeLayout,
 } from './layouts'
 export { bilingualGaps, checkPage, deletePage, listPageSlugs, pageFilePath, pageHasLanguage, pagesByLayout, readPage, writePage } from './pages'
-export { applyProposal, readProposal, recordProposal } from './setup'
-export { readLabels, readSiteConfig, setupAccepted, readEventFields } from './model'
+export { applyProposal, normalizeProposal, readProposal, recordProposal } from './setup'
+export { labelNames, parseLabels, readLabels, readSiteConfig, setupAccepted, readEventFields } from './model'
 export { SLOT_TYPES, parseSlotSchema, resolveSlots, serializeSlotSchema, slotSignature, slotTexts, validateSlots } from './slots'
 export { contrastRatio, contrastWarnings, emptyTokens, nearestColor, parseTokens, readTokens, tokenSummary, tokensCss } from './tokens'
 export type { Tokens } from './tokens'

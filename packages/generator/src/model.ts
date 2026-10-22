@@ -93,6 +93,35 @@ function validTimeZone(zone: string): string {
   }
 }
 
+const LABEL_NAME = /^[a-z][a-z0-9_]*$/
+
+/** Labels as a name with a text per language. Accepts the text of labels.yml too, which models sometimes send. */
+export function parseLabels(value: unknown): Record<string, Record<string, string>> {
+  let raw = value
+  if (typeof raw === 'string') {
+    try {
+      raw = parse(raw)
+    } catch (error) {
+      throw new Error(`labels is not valid YAML: ${error instanceof Error ? error.message.split('\n')[0] : 'unreadable'}`)
+    }
+  }
+  if (raw === undefined || raw === null) return {}
+  if (typeof raw !== 'object' || Array.isArray(raw)) throw new Error('labels must be an object of label names, each with a text per language')
+  const labels: Record<string, Record<string, string>> = {}
+  for (const [name, texts] of Object.entries(raw as Record<string, unknown>)) {
+    if (!LABEL_NAME.test(name)) throw new Error(`Label name ${name} must be lowercase words with underscores, such as read_more`)
+    if (!texts || typeof texts !== 'object' || Array.isArray(texts) || Object.values(texts).some((text) => typeof text !== 'string')) {
+      throw new Error(`Label ${name} must be an object with one text per language, such as {"de":"Mehr","en":"More"}`)
+    }
+    labels[name] = { ...(texts as Record<string, string>) }
+  }
+  return labels
+}
+
+export function labelNames(root: string): string[] {
+  return Object.keys(readYamlFile<Record<string, unknown>>(path.join(root, 'design', 'labels.yml'), {}) ?? {})
+}
+
 export function readLabels(root: string, lang: string): Record<string, string> {
   const raw = readYamlFile<Record<string, unknown>>(path.join(root, 'design', 'labels.yml'), {})
   const first = readSiteConfig(root).languages[0]?.id ?? lang

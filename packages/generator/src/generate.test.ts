@@ -16,6 +16,7 @@ import {
   slotExpectations,
   pagesByLayout,
   parseSlotSchema,
+  readLabels,
   readLayout,
   readPage,
   renderContent,
@@ -366,4 +367,28 @@ test('a setup proposal may carry tokens, and a bad token stops it', () => {
   assert.equal(parseTokens(fs.readFileSync(path.join(root, 'design', 'tokens.yml'), 'utf8')).colors.primary, '#112233')
   assert.throws(() => applyProposal(root, { tokens: { colors: { primary: 'teal' } } }), /colors\.primary must be a hex color/)
   assert.equal(parseTokens(fs.readFileSync(path.join(root, 'design', 'tokens.yml'), 'utf8')).colors.primary, '#112233')
+})
+
+test('a part of a proposal sent as the text of a file is read as data, and text that is not data is refused', () => {
+  const root = newSite('housing-setup-text-')
+  const notes = applyProposal(root, {
+    labels: 'read_more:\n  de: Weiterlesen\n  en: Read more\n' as never,
+    nav: 'menu:\n  - href: /kontakt/\n    label:\n      de: Kontakt\n      en: Contact\n' as never,
+    tokens: 'colors:\n  primary: "#112233"\n  on-primary: "#ffffff"\n' as never,
+    layouts: [{ name: 'note', purpose: 'A note.', slots: { body: 'markdown' }, template: '{% extends "shell.njk" %}{% block body %}{{ slots.body }}<a>{{ labels.read_more }}{{ labels.missing_one }}</a>{% endblock %}' }],
+  })
+  assert.match(notes, /labels used by templates but not in design\/labels\.yml, so they show nothing: missing_one/)
+  const labels = fs.readFileSync(path.join(root, 'design', 'labels.yml'), 'utf8')
+  assert.match(labels, /read_more:\n {2}de: Weiterlesen/)
+  assert.match(labels, /news:\n {2}de: Aktuelles/)
+  assert.equal(/^"?\d+"?:/m.test(labels), false)
+  assert.deepEqual(readLabels(root, 'en').read_more, 'Read more')
+  assert.match(fs.readFileSync(path.join(root, 'design', 'nav.yml'), 'utf8'), /menu:\n {2}- href: \/kontakt\//)
+  assert.throws(() => applyProposal(root, { labels: 'a: [' as never }), /labels is not valid YAML/)
+  assert.throws(() => applyProposal(root, { labels: 'just some words' as never }), /labels must be an object/)
+  assert.throws(() => applyProposal(root, { labels: { 'Read More': { de: 'x' } } as never }), /Label name Read More must be lowercase words/)
+  assert.throws(() => applyProposal(root, { labels: { more: 'Mehr' } as never }), /Label more must be an object with one text per language/)
+  assert.throws(() => applyProposal(root, { nav: 'plain text' as never }), /nav must be a list or an object, not text/)
+  assert.throws(() => applyProposal(root, { pages: 'x' as never }), /pages must be a list/)
+  assert.throws(() => applyProposal(root, { site: 'x' as never }), /site must be an object/)
 })

@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { generateText, type LanguageModel, type ModelMessage } from 'ai'
-import { bilingualGaps, initSite } from '@schlor/generator'
+import { applyProposal, bilingualGaps, readSiteConfig, generate, initSite, labelNames, labelReferences, listLayoutNames, lostContent, readLayout, readProposal, readTokens } from '@schlor/generator'
 import { agentRun } from './agent'
 import { commitAll, ensureGit, filesChangedSince, git } from './git'
 import { designContentRefusal, namedPages } from './layout-guard'
@@ -214,4 +214,47 @@ function plainText(html: string): string {
 
 function normalize(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * A setup proposal that is only recorded changes nothing on the site, so it cannot be checked by what changed.
+ * Accept it on a copy, and look at what comes out: it applies, every page fits its layout, no words are lost, no
+ * layout holds content, every label a template uses exists, and the design follows its own tokens.
+ */
+export function proposalAccepts(root: string): Check[] {
+  const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'schlor-accept-'))
+  fs.cpSync(root, copy, { recursive: true })
+  const proposal = readProposal(copy)
+  if (Object.keys(proposal).length === 0) return [{ name: 'a proposal was recorded', ok: false, detail: 'nothing was recorded' }]
+  const checks: Check[] = [{ name: 'a proposal was recorded', ok: true }]
+  try {
+    const notes = applyProposal(copy, proposal, true)
+    generate(copy)
+    checks.push({ name: 'the proposal can be accepted', ok: true })
+    const warned = notes.indexOf('WARNING')
+    checks.push({ name: 'no warning from accepting it', ok: warned === -1, detail: warned === -1 ? '' : notes.slice(warned) })
+  } catch (error) {
+    checks.push({ name: 'the proposal can be accepted', ok: false, detail: error instanceof Error ? error.message : String(error) })
+    return checks
+  }
+  checks.push(publishable(copy))
+  const lost = lostContent(copy)
+  checks.push({ name: 'every slot word is on its page', ok: lost.length === 0, detail: lost.join('; ') })
+  checks.push(designHoldsNoContent(copy))
+  const design = path.join(copy, 'design')
+  const defined = new Set(labelNames(copy))
+  const missing: string[] = []
+  for (const name of listLayoutNames(design)) {
+    const file = path.join(design, 'layouts', name, 'template.njk')
+    for (const label of labelReferences(fs.readFileSync(file, 'utf8'))) if (!defined.has(label)) missing.push(`${name}: ${label}`)
+    if (!readLayout(design, name).purpose) missing.push(`${name}: no purpose`)
+  }
+  checks.push({ name: 'every label and purpose a layout needs exists', ok: missing.length === 0, detail: missing.join(', ') })
+  const labels = [...defined]
+  checks.push({ name: 'labels are named, not numbered', ok: labels.every((name) => /^[a-z][a-z0-9_]*$/.test(name)), detail: labels.slice(0, 5).join(', ') })
+  const siteName = readSiteConfig(copy).name
+  checks.push({ name: 'the site has its own name', ok: siteName !== 'Housing project', detail: siteName })
+  const colors = Object.keys(readTokens(copy).colors)
+  checks.push({ name: 'the colors are tokens', ok: colors.includes('primary') && colors.includes('on-primary'), detail: colors.join(', ') })
+  return checks
 }

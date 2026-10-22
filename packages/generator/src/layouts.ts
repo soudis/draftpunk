@@ -93,6 +93,15 @@ export type LayoutCheck = { errors: string[]; warnings: string[] }
 
 const SLOT_REF = /\bslots\.([A-Za-z_][A-Za-z0-9_]*)|\bslots\[\s*['"]([A-Za-z0-9_]+)['"]\s*\]/g
 
+const LABEL_REF = /\blabels\.([A-Za-z_][A-Za-z0-9_]*)|\blabels\[\s*['"]([A-Za-z0-9_]+)['"]\s*\]/g
+
+/** Names under `labels` that a template reads. */
+export function labelReferences(template: string): string[] {
+  const found = new Set<string>()
+  for (const match of template.matchAll(LABEL_REF)) found.add(match[1] ?? match[2])
+  return [...found]
+}
+
 /** Names under `slots` that a template reads. */
 export function slotReferences(template: string): string[] {
   const found = new Set<string>()

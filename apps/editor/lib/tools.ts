@@ -37,6 +37,8 @@ import {
   forkLayout,
   formatCatalog,
   generate,
+  labelNames,
+  labelReferences,
   layoutCatalog,
   layoutExists,
   listLayoutNames,
@@ -45,6 +47,7 @@ import {
   pageFilePath,
   pageLayoutsOrThrow,
   pagesByLayout,
+  parseLabels,
   parseLayoutFile,
   readEventFields,
   readLayout,
@@ -624,7 +627,10 @@ async function saveLayout(root: string, input: LayoutWrite, verifier: Verifier):
     }
   }
   const before = layoutExists(designDir, input.name) ? readLayoutFiles(designDir, input.name) : null
-  const { warnings } = writeLayout(designDir, input)
+  const { warnings: layoutWarnings } = writeLayout(designDir, input)
+  const defined = new Set(labelNames(root))
+  const missing = labelReferences(input.template).filter((name) => !defined.has(name))
+  const warnings = missing.length > 0 ? [...layoutWarnings, `Labels ${missing.join(', ')} are not in design/labels.yml, so they show nothing. Add each with a text per language.`] : layoutWarnings
   try {
     const notes = layoutReport(root, input.name, warnings)
     const advice = designAdvice(root, [
@@ -656,6 +662,7 @@ async function saveDesignFile(root: string, rel: string, content: string, verifi
     const checked = checkLayout(readLayout(path.join(root, 'design'), layoutFile[1]), content)
     if (checked.errors.length > 0) fail(`${checked.errors.join('. ')}. Nothing was written.`)
   }
+  if (target === 'labels.yml') parseLabels(content)
   let tokenNote = ''
   if (target === 'tokens.yml') {
     const tokens = parseTokens(content)
