@@ -7,6 +7,8 @@ import { agentRun } from './agent'
 import { commitAll, ensureGit, filesChangedSince, git } from './git'
 import { designContentRefusal, namedPages } from './layout-guard'
 import type { EditorMode } from './mode'
+import { classifyRequest, planRequest, type RequestPlan, type Task } from './routing'
+import { needsReasoningPassBack } from './thinking'
 import { stepTools } from './usage-log'
 
 export type Check = { name: string; ok: boolean; detail?: string }
@@ -28,6 +30,8 @@ export type Prices = { input: number; cachedInput: number; output: number }
 export type EvalResult = {
   scenario: string
   model: string
+  /** The kind of work each turn was taken for, and the model it got. */
+  turnPlans: { task: Task; model: string }[]
   seconds: number
   turns: number
   steps: number
@@ -45,10 +49,15 @@ export type EvalResult = {
 
 const AUTHOR = { name: 'eval', email: 'eval@schlor.org' }
 
+export type Routing = {
+  settings: { baseURL: string; model: string; contentModel: string; thinking: 'auto' | 'off' | 'default' }
+  modelFor: (plan: RequestPlan) => LanguageModel
+}
+
 export async function runScenario(
   model: LanguageModel,
   scenario: Scenario,
-  options: { modelName: string; root?: string; prices?: Prices; vision?: boolean } = { modelName: 'model' },
+  options: { modelName: string; root?: string; prices?: Prices; vision?: boolean; routing?: Routing } = { modelName: 'model' },
 ): Promise<EvalResult> {
   const root = options.root ?? fs.mkdtempSync(path.join(os.tmpdir(), `schlor-eval-${scenario.id}-`))
   initSite(root)
@@ -65,9 +74,21 @@ export async function runScenario(
   let cached = 0
   let output = 0
   let finalText = ''
+  const turnPlans: EvalResult['turnPlans'] = []
+  const asked: { role: string; parts: { type: string; text: string }[] }[] = []
   for (const turn of scenario.turns) {
     messages.push({ role: 'user', content: turn })
-    const result = await generateText({ model, ...agentRun(scenario.mode ?? 'edit', root, { vision: options.vision }), messages })
+    asked.push({ role: 'user', parts: [{ type: 'text', text: turn }] })
+    const plan = options.routing ? planRequest(options.routing.settings, classifyRequest(asked, scenario.mode ?? 'edit')) : undefined
+    turnPlans.push({ task: plan?.task ?? 'design', model: plan?.model ?? options.modelName })
+    const result = await generateText({
+      model: plan && options.routing ? options.routing.modelFor(plan) : model,
+      ...agentRun(scenario.mode ?? 'edit', root, {
+        vision: options.vision,
+        keepReasoning: Boolean(plan && options.routing && needsReasoningPassBack(options.routing.settings.baseURL) && plan.thinking === 'default'),
+      }),
+      messages,
+    })
     for (const step of result.steps) {
       steps += 1
       input += step.usage.inputTokens ?? 0
@@ -87,6 +108,7 @@ export async function runScenario(
   return {
     scenario: scenario.id,
     model: options.modelName,
+    turnPlans,
     seconds: (Date.now() - started) / 1000,
     turns: scenario.turns.length,
     steps,
@@ -113,6 +135,7 @@ export function formatEval(results: EvalResult[]): string {
     const failed = result.checks.filter((check) => !check.ok)
     lines.push(
       `${result.scenario} — ${result.model}: ${failed.length === 0 ? 'checks pass' : `${failed.length} check(s) failed`}`,
+      `  turns: ${result.turnPlans.map((plan) => `${plan.task} on ${plan.model}`).join('; ')}`,
       `  turns ${result.turns}, steps ${result.steps}, tool calls ${result.toolCalls}, failed ${result.toolFailures}, ${result.seconds.toFixed(1)}s`,
       `  tokens: input ${result.inputTokens} (cached ${result.cachedInputTokens}), output ${result.outputTokens}${result.cost === undefined ? '' : `, cost $${result.cost.toFixed(4)}`}`,
       `  files changed: ${result.changed.length === 0 ? 'none' : result.changed.join(', ')}`,

@@ -91,6 +91,12 @@ Phase 6 is built (design system and durable rules):
 - `add_rule` keeps a lasting preference in `design/rules.md` (one line, at most 30, no duplicates), and the prompt lists the rules. Setup proposals may carry `tokens`.
 - ADR 0014 records that tokens advise and do not refuse.
 
+Phase 7 is built (model routing and provider checks):
+- A request is classified as setup, design or content work (`lib/routing.ts`). It is content work only when it clearly asks to change words, facts, dates or pages and says nothing about the look, or contains a web address; anything unclear counts as design and gets the main model. A cheaper model for content work is optional: a second model name in the settings dialog (same address and token), or `LLM_CONTENT_MODEL`. The step log records the task and the model of every step, and the usage report shows tokens per task.
+- Thinking is off for content work and for naming a chat or describing a picture, and the provider's own default for design and setup. `LLM_THINKING=off|default` overrides it for every request. It is switched off the way the provider documents it: `thinking: {type: disabled}` for DeepSeek and Z.ai, `reasoning_effort: minimal` for OpenAI gpt-5 and later; other providers are left alone.
+- DeepSeek in thinking mode returns 400 if the chain of thought of any earlier assistant message is missing from a request that carries tools (from its documentation, not from a call). The history keeps the chain of thought for DeepSeek while thinking is on, instead of dropping it from older turns, and an assistant message without one gets an empty one. Tested through the real tool loop against a fake server; not against DeepSeek's API.
+- Reading several files in one step is in the prompt, and `read_page` reads every language at once, from earlier phases.
+
 Not built yet: reusable sections shared by several layouts (the starter layouts repeat their markup). The importer package writes the new page format but only knows the old fixed layouts.
 
 ## 3. Phases

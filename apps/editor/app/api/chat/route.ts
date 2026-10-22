@@ -1,9 +1,11 @@
 import path from 'node:path'
 import { convertToModelMessages, streamText, type UIMessage } from 'ai'
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { commitAll } from '@/lib/git'
 import { chatErrorText } from '@/lib/api-error'
-import { attachThoughtSignatures, tapThoughtSignatures } from '@/lib/gemini'
+import { modelFor } from '@/lib/provider'
+import { classifyRequest, planRequest } from '@/lib/routing'
+import { modelSupportsVision } from '@/lib/model-catalog'
+import { needsReasoningPassBack } from '@/lib/thinking'
 import { sessionFromRequest } from '@/lib/session'
 import { chatDatabasePath, siteRoot } from '@/lib/site'
 import { agentRun } from '@/lib/agent'
@@ -43,18 +45,15 @@ export async function POST(request: Request) {
       ? nameFromFirstInput(firstText.text)
       : undefined
   const root = siteRoot()
-  const thoughtSignatures = new Map<string, string>()
-  const provider = createOpenAICompatible({
-    name: 'editor',
-    baseURL: modelSettings.baseURL,
-    apiKey: modelSettings.apiKey,
-    fetch: async (input, init) => tapThoughtSignatures(await fetch(input, init), thoughtSignatures),
-    transformRequestBody: (body) => attachThoughtSignatures(body, thoughtSignatures),
-  })
+  const plan = planRequest(modelSettings, classifyRequest(body.messages, mode))
   let step = 0
   const result = streamText({
-    model: provider.chatModel(modelSettings.model),
-    ...agentRun(mode, root, { vision: modelSettings.vision, cacheDir: path.join(path.dirname(chatDatabasePath()), 'web-cache') }),
+    model: modelFor(modelSettings, plan),
+    ...agentRun(mode, root, {
+      vision: modelSupportsVision(modelSettings.baseURL, plan.model, process.env.LLM_VISION),
+      cacheDir: path.join(path.dirname(chatDatabasePath()), 'web-cache'),
+      keepReasoning: needsReasoningPassBack(modelSettings.baseURL) && plan.thinking === 'default',
+    }),
     messages: await convertToModelMessages(body.messages),
     abortSignal: request.signal,
     onStepFinish: (finished) => {
@@ -63,7 +62,8 @@ export async function POST(request: Request) {
           sessionId,
           turn: userCount,
           step: (step += 1),
-          model: modelSettings.model,
+          model: plan.model,
+          task: plan.task,
           inputTokens: finished.usage.inputTokens ?? 0,
           cachedInputTokens: finished.usage.cachedInputTokens ?? 0,
           outputTokens: finished.usage.outputTokens ?? 0,

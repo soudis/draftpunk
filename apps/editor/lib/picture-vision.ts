@@ -1,6 +1,6 @@
 import { generateText } from 'ai'
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { currentModelSettings } from './model-settings'
+import { modelFor } from './provider'
 import { stemFromFilename, type PictureKind } from './pictures'
 
 export type PictureSuggestion = { name: string; description: string; tags: string[] }
@@ -24,11 +24,6 @@ export function parseSuggestion(text: string): PictureSuggestion {
 export async function suggestPicture(bytes: Uint8Array, kind: PictureKind, hint = ''): Promise<PictureSuggestion> {
   const modelSettings = currentModelSettings()
   if (!modelSettings.apiKey) throw new Error('LLM_API_KEY is not set')
-  const provider = createOpenAICompatible({
-    name: 'editor',
-    baseURL: modelSettings.baseURL,
-    apiKey: modelSettings.apiKey,
-  })
   const instruction = [
     'Look at this picture and reply with JSON only:',
     '{"name":"short-readable-words","description":"one German sentence for finding it later","tags":["word"]}',
@@ -45,7 +40,7 @@ export async function suggestPicture(bytes: Uint8Array, kind: PictureKind, hint 
       : { type: 'image' as const, image: bytes, mediaType: mediaType(kind) }
   const svgText = kind === 'svg' ? new TextDecoder().decode(bytes.subarray(0, 8000)) : ''
   const result = await generateText({
-    model: provider.chatModel(modelSettings.model),
+    model: modelFor(modelSettings, { task: 'content', model: modelSettings.model, thinking: 'off' }),
     messages: [
       {
         role: 'user',

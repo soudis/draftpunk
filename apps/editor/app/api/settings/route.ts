@@ -26,6 +26,7 @@ export async function GET(request: Request) {
   return Response.json({
     baseURL: resolved.baseURL,
     model: resolved.model,
+    contentModel: resolved.contentModel,
     tokenSet: resolved.apiKey.length > 0,
     siteName: String(site.name ?? '').trim(),
   })
@@ -34,12 +35,13 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const session = await sessionFromRequest(request)
   if (!session) return Response.json({ error: 'Login required' }, { status: 401 })
-  const body = (await request.json()) as { baseURL?: unknown; model?: unknown; apiKey?: unknown; siteName?: unknown }
+  const body = (await request.json()) as { baseURL?: unknown; model?: unknown; apiKey?: unknown; siteName?: unknown; contentModel?: unknown }
   const siteName = typeof body.siteName === 'string' ? body.siteName.trim() : ''
   if (!siteName) return Response.json({ error: 'Enter a site name.' }, { status: 400 })
   const baseURL = typeof body.baseURL === 'string' ? body.baseURL : ''
   const model = typeof body.model === 'string' ? body.model : ''
   const apiKey = typeof body.apiKey === 'string' ? body.apiKey : ''
+  const contentModel = typeof body.contentModel === 'string' ? body.contentModel : undefined
   try {
     assertModelBase(baseURL)
   } catch (error) {
@@ -48,7 +50,7 @@ export async function POST(request: Request) {
   }
   const file = modelSettingsPath()
   const stored = readStoredModelSettings(file)
-  const next = applyModelSettingsUpdate(stored, { baseURL, model, apiKey })
+  const next = applyModelSettingsUpdate(stored, { baseURL, model, apiKey, contentModel })
   const resolved = resolveModelSettings(next)
   if (!resolved.apiKey) return Response.json({ error: 'Enter a token.' }, { status: 400 })
   writeStoredModelSettings(file, next)
@@ -67,6 +69,7 @@ export async function POST(request: Request) {
   return Response.json({
     baseURL: resolved.baseURL,
     model: resolved.model,
+    contentModel: resolved.contentModel,
     tokenSet: true,
     siteName,
   })

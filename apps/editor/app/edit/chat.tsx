@@ -811,6 +811,7 @@ function SettingsModal({
   const [name, setName] = useState(siteName)
   const [baseURL, setBaseURL] = useState('')
   const [model, setModel] = useState('')
+  const [contentModel, setContentModel] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [tokenSet, setTokenSet] = useState(false)
   const [error, setError] = useState('')
@@ -819,13 +820,14 @@ function SettingsModal({
   useEffect(() => {
     void fetch('/api/settings')
       .then((response) => response.json())
-      .then((data: { baseURL?: string; model?: string; siteName?: string; tokenSet?: boolean; error?: string }) => {
+      .then((data: { baseURL?: string; model?: string; contentModel?: string; siteName?: string; tokenSet?: boolean; error?: string }) => {
         if (data.error) {
           setError(data.error)
           return
         }
         setBaseURL(data.baseURL ?? '')
         setModel(data.model ?? '')
+        setContentModel(data.contentModel ?? '')
         setTokenSet(data.tokenSet === true)
         if (data.siteName) setName(data.siteName)
       })
@@ -839,7 +841,7 @@ function SettingsModal({
       const response = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ siteName: name, baseURL, model, apiKey }),
+        body: JSON.stringify({ siteName: name, baseURL, model, apiKey, contentModel }),
       })
       const data = (await response.json()) as { error?: string; siteName?: string; tokenSet?: boolean }
       if (!response.ok || data.error || !data.siteName) {
@@ -889,6 +891,16 @@ function SettingsModal({
             if (!choice) return
             setModel(choice.model)
             setBaseURL(choice.baseURL)
+          }}
+        />
+        <SuggestField
+          label="Cheaper model for plain text edits (optional)"
+          value={contentModel}
+          onValue={setContentModel}
+          options={modelOptions(contentModel, baseURL)}
+          onPick={(id) => {
+            const choice = choiceById(modelSuggestions(contentModel, baseURL), id)
+            if (choice) setContentModel(choice.model)
           }}
         />
         <label>

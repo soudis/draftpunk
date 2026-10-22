@@ -5,6 +5,7 @@ export type StepRecord = {
   turn: number
   step: number
   model: string
+  task?: string
   inputTokens: number
   cachedInputTokens: number
   outputTokens: number
@@ -29,13 +30,18 @@ export function migrateUsage(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS step_log_session ON step_log (session_id, turn, step);
   `)
+  try {
+    database.exec("ALTER TABLE step_log ADD COLUMN task TEXT NOT NULL DEFAULT ''")
+  } catch {
+    // The column is already there.
+  }
 }
 
 export function recordStep(database: Database.Database, record: StepRecord, at = Date.now()): void {
   database
     .prepare(
-      `INSERT INTO step_log (at, session_id, turn, step, model, input_tokens, cached_input_tokens, output_tokens, finish_reason, tools)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO step_log (at, session_id, turn, step, model, task, input_tokens, cached_input_tokens, output_tokens, finish_reason, tools)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       at,
@@ -43,6 +49,7 @@ export function recordStep(database: Database.Database, record: StepRecord, at =
       record.turn,
       record.step,
       record.model,
+      record.task ?? '',
       record.inputTokens,
       record.cachedInputTokens,
       record.outputTokens,
@@ -68,6 +75,7 @@ type Row = {
   session_id: string
   turn: number
   model: string
+  task: string
   input_tokens: number
   cached_input_tokens: number
   output_tokens: number
@@ -85,6 +93,7 @@ export type UsageReport = {
   toolFailures: number
   failureRate: number
   byTool: { name: string; calls: number; failures: number }[]
+  byTask: { task: string; model: string; steps: number; inputTokens: number; outputTokens: number }[]
   largestTurnInputTokens: number
   failures: { name: string; error: string; count: number }[]
 }
@@ -102,11 +111,12 @@ export function usageReport(database: Database.Database, filter: { sessionId?: s
   }
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
   const rows = database
-    .prepare(`SELECT session_id, turn, model, input_tokens, cached_input_tokens, output_tokens, tools FROM step_log ${where} ORDER BY id`)
+    .prepare(`SELECT session_id, turn, model, task, input_tokens, cached_input_tokens, output_tokens, tools FROM step_log ${where} ORDER BY id`)
     .all(...values) as Row[]
   const turnInput = new Map<string, number>()
   const byTool = new Map<string, { calls: number; failures: number }>()
   const failures = new Map<string, { name: string; error: string; count: number }>()
+  const tasks = new Map<string, { task: string; model: string; steps: number; inputTokens: number; outputTokens: number }>()
   let input = 0
   let cached = 0
   let output = 0
@@ -114,6 +124,12 @@ export function usageReport(database: Database.Database, filter: { sessionId?: s
     input += row.input_tokens
     cached += row.cached_input_tokens
     output += row.output_tokens
+    const taskKey = `${row.task}|${row.model}`
+    const task = tasks.get(taskKey) ?? { task: row.task || 'unknown', model: row.model, steps: 0, inputTokens: 0, outputTokens: 0 }
+    task.steps += 1
+    task.inputTokens += row.input_tokens
+    task.outputTokens += row.output_tokens
+    tasks.set(taskKey, task)
     const key = `${row.session_id}:${row.turn}`
     turnInput.set(key, (turnInput.get(key) ?? 0) + row.input_tokens)
     for (const tool of JSON.parse(row.tools) as StepRecord['tools']) {
@@ -142,6 +158,7 @@ export function usageReport(database: Database.Database, filter: { sessionId?: s
     toolFailures: failed,
     failureRate: calls ? failed / calls : 0,
     byTool: [...byTool.entries()].map(([name, item]) => ({ name, ...item })).sort((a, b) => b.calls - a.calls),
+    byTask: [...tasks.values()].sort((a, b) => b.inputTokens - a.inputTokens),
     largestTurnInputTokens: Math.max(0, ...turnInput.values()),
     failures: [...failures.values()].sort((a, b) => b.count - a.count),
   }
@@ -154,6 +171,9 @@ export function formatReport(report: UsageReport): string {
     `input tokens ${report.inputTokens} (cached ${report.cachedInputTokens}, ${pct(report.cacheHitRate)}), output tokens ${report.outputTokens}`,
     `largest turn: ${report.largestTurnInputTokens} input tokens`,
     `tool calls ${report.toolCalls}, failed ${report.toolFailures} (${pct(report.failureRate)})`,
+    '',
+    'task      model                 steps    input   output',
+    ...report.byTask.map((item) => `${item.task.padEnd(9)} ${item.model.padEnd(21)} ${String(item.steps).padStart(5)} ${String(item.inputTokens).padStart(8)} ${String(item.outputTokens).padStart(8)}`),
     '',
     'tool                 calls  failed',
     ...report.byTool.map((tool) => `${tool.name.padEnd(20)} ${String(tool.calls).padStart(5)}  ${String(tool.failures).padStart(6)}`),

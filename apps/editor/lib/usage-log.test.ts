@@ -23,7 +23,7 @@ test('the report counts tokens, cache hits, and failures per tool', () => {
     outputTokens: 400,
     tools: [{ name: 'write_page', error: 'write_page: languages is required. Nothing was changed.' }],
   })
-  recordStep(database, { ...step, turn: 2, step: 1, inputTokens: 3000, cachedInputTokens: 2400, outputTokens: 10, tools: [{ name: 'write_page' }] })
+  recordStep(database, { ...step, task: 'content', model: 'small', turn: 2, step: 1, inputTokens: 3000, cachedInputTokens: 2400, outputTokens: 10, tools: [{ name: 'write_page' }] })
   const report = usageReport(database)
   assert.equal(report.turns, 2)
   assert.equal(report.steps, 3)
@@ -34,6 +34,11 @@ test('the report counts tokens, cache hits, and failures per tool', () => {
   assert.equal(report.toolFailures, 1)
   assert.equal(report.byTool.find((tool) => tool.name === 'write_page')?.failures, 1)
   assert.equal(Math.round(report.cacheHitRate * 100), 65)
+  assert.deepEqual(report.byTask, [
+    { task: 'content', model: 'small', steps: 1, inputTokens: 3000, outputTokens: 10 },
+    { task: 'unknown', model: 'm', steps: 2, inputTokens: 2200, outputTokens: 450 },
+  ])
+  assert.match(formatReport(report), /content +small +1 +3000 +10/)
   assert.match(formatReport(report), /1× write_page: write_page: languages is required/)
   assert.equal(usageReport(database, { model: 'other' }).steps, 0)
 })

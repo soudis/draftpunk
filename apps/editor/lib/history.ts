@@ -68,7 +68,7 @@ function stubInput(toolName: string, input: unknown): unknown {
 }
 
 /** Prune what the agent no longer needs from earlier turns, and drop images once their step is over. */
-export function pruneHistory(messages: ModelMessage[], budgetChars = DEFAULT_BUDGET_CHARS): ModelMessage[] {
+export function pruneHistory(messages: ModelMessage[], budgetChars = DEFAULT_BUDGET_CHARS, options: { keepReasoning?: boolean } = {}): ModelMessage[] {
   const turnStart = lastUserIndex(messages)
   const lastToolMessage = (() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) if (messages[index].role === 'tool') return index
@@ -93,13 +93,13 @@ export function pruneHistory(messages: ModelMessage[], budgetChars = DEFAULT_BUD
       return withParts(
         message,
         parts(message)
-          .filter((part) => part.type !== 'reasoning')
+          .filter((part) => options.keepReasoning || part.type !== 'reasoning')
           .map((part) => (part.type === 'tool-call' ? { ...part, input: stubInput(String(part.toolName), part.input) } : part)),
       )
     }
     return message
   })
-  return fitBudget(pruned, turnStart, budgetChars)
+  return fitBudget(pruned, turnStart, budgetChars, options.keepReasoning === true)
 }
 
 function size(messages: ModelMessage[]): number {
@@ -107,7 +107,7 @@ function size(messages: ModelMessage[]): number {
 }
 
 // When even the pruned history is too long, drop the tool traffic of the oldest turns and keep what was said.
-function fitBudget(messages: ModelMessage[], turnStart: number, budgetChars: number): ModelMessage[] {
+function fitBudget(messages: ModelMessage[], turnStart: number, budgetChars: number, keepReasoning: boolean): ModelMessage[] {
   if (size(messages) <= budgetChars) return messages
   const kept = [...messages]
   let index = 0
@@ -119,8 +119,8 @@ function fitBudget(messages: ModelMessage[], turnStart: number, budgetChars: num
       continue
     }
     if (message.role === 'assistant') {
-      const text = parts(message).filter((part) => part.type === 'text')
-      if (text.length === 0) {
+      const text = parts(message).filter((part) => part.type === 'text' || (keepReasoning && part.type === 'reasoning'))
+      if (text.every((part) => part.type !== 'text')) {
         kept.splice(index, 1)
         turnStart -= 1
         continue

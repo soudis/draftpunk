@@ -22,6 +22,8 @@ test('the environment fills gaps, and a stored token wins', () => {
     model: 'env-model',
     apiKey: 'env-key',
     vision: false,
+    contentModel: '',
+    thinking: 'auto',
   })
   assert.equal(resolveModelSettings(empty, { ...env, LLM_VISION: '1' }).vision, true)
   assert.equal(resolveModelSettings(empty, {}).baseURL, DEFAULT_MODEL_BASE)

@@ -1,6 +1,7 @@
 import { generateText } from 'ai'
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { currentModelSettings } from './model-settings'
+import { modelFor } from './provider'
+import { planRequest } from './routing'
 
 export function cleanChatName(text: string): string {
   const line = text.trim().split('\n')[0]?.replace(/^["'`]+|["'`]+$/g, '').replace(/\s+/g, ' ').trim() ?? ''
@@ -18,13 +19,8 @@ export async function nameFromFirstInput(input: string): Promise<string> {
   const modelSettings = currentModelSettings()
   if (!modelSettings.apiKey || !input.trim()) return fallback
   try {
-    const provider = createOpenAICompatible({
-      name: 'editor',
-      baseURL: modelSettings.baseURL,
-      apiKey: modelSettings.apiKey,
-    })
     const result = await generateText({
-      model: provider.chatModel(modelSettings.model),
+      model: modelFor(modelSettings, planRequest(modelSettings, 'content')),
       prompt: [
         'Name this chat from the first message.',
         'Reply with a short name only, in the language of the message, at most six words, with no quotes.',

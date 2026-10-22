@@ -1,10 +1,10 @@
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { formatEval, runScenario, type EvalResult } from '../lib/eval'
 import { scenarios } from '../evals/scenarios'
 import { modelSupportsVision } from '../lib/model-catalog'
+import { modelFor } from '../lib/provider'
 
 // pnpm --filter @schlor/editor eval -- [--scenario id|all] [--network] [--json]
-//   [--base-url URL] [--model NAME] [--price 0.15,0.003,0.6]   (USD per million tokens: input, cached input, output)
+//   [--base-url URL] [--model NAME] [--content-model NAME] [--thinking auto|off|default] [--price 0.15,0.003,0.6]   (USD per million tokens: input, cached input, output)
 // The key comes from LLM_API_KEY. Base URL and model default to LLM_BASE_URL and LLM_MODEL.
 
 function option(name: string): string | undefined {
@@ -30,11 +30,18 @@ async function main() {
   }
   const price = option('price')?.split(',').map(Number)
   const prices = price && price.length === 3 && price.every(Number.isFinite) ? { input: price[0], cachedInput: price[1], output: price[2] } : undefined
-  const provider = createOpenAICompatible({ name: 'eval', baseURL, apiKey })
+  const contentModel = option('content-model') ?? process.env.LLM_CONTENT_MODEL ?? ''
+  const thinking = option('thinking') ?? process.env.LLM_THINKING
+  const settings = { baseURL, apiKey, model: modelName, contentModel: contentModel === modelName ? '' : contentModel, thinking: (thinking === 'off' || thinking === 'default' ? thinking : 'auto') as 'auto' | 'off' | 'default' }
   const results: EvalResult[] = []
   for (const scenario of chosen) {
     console.error(`running ${scenario.id}…`)
-    results.push(await runScenario(provider.chatModel(modelName), scenario, { modelName, prices, vision: modelSupportsVision(baseURL, modelName, process.env.LLM_VISION) }))
+    results.push(await runScenario(modelFor(settings, { task: 'design', model: modelName, thinking: 'default' }), scenario, {
+        modelName,
+        prices,
+        vision: modelSupportsVision(baseURL, modelName, process.env.LLM_VISION),
+        routing: { settings, modelFor: (plan) => modelFor(settings, plan) },
+      }))
   }
   console.log(flag('json') ? JSON.stringify(results, null, 2) : formatEval(results))
   process.exit(results.some((result) => result.checks.some((check) => !check.ok)) ? 1 : 0)
