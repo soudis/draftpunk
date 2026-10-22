@@ -40,35 +40,51 @@ export function migrate(database: Database.Database): void {
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS sessions_owner_updated ON sessions (owner, updated_at DESC);
-    CREATE TABLE IF NOT EXISTS reply_commit (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      revision TEXT NOT NULL,
+    CREATE TABLE IF NOT EXISTS reply_commits (
+      message_id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
-      message_id TEXT NOT NULL
+      revision TEXT NOT NULL,
+      created_at INTEGER NOT NULL
     );
   `)
   migrateUsage(database)
 }
 
+export type ReplyCommit = { revision: string; sessionId: string; messageId: string }
+
+/** The commit a reply made, kept so that the reply can be undone later. */
 export function recordReplyCommit(database: Database.Database, sessionId: string, messageId: string, revision: string): void {
   database
     .prepare(
-      `INSERT INTO reply_commit (id, revision, session_id, message_id) VALUES (1, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET revision = excluded.revision, session_id = excluded.session_id, message_id = excluded.message_id`,
+      `INSERT INTO reply_commits (message_id, session_id, revision, created_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(message_id) DO UPDATE SET session_id = excluded.session_id, revision = excluded.revision, created_at = excluded.created_at`,
     )
-    .run(revision, sessionId, messageId)
+    .run(messageId, sessionId, revision, Date.now())
 }
 
-export function replyCommit(database: Database.Database): { revision: string; sessionId: string; messageId: string } | null {
-  const row = database.prepare('SELECT revision, session_id, message_id FROM reply_commit WHERE id = 1').get() as
+export function replyCommit(database: Database.Database, messageId: string): ReplyCommit | null {
+  const row = database.prepare('SELECT revision, session_id, message_id FROM reply_commits WHERE message_id = ?').get(messageId) as
     | { revision: string; session_id: string; message_id: string }
     | undefined
-  if (!row) return null
-  return { revision: row.revision, sessionId: row.session_id, messageId: row.message_id }
+  return row ? { revision: row.revision, sessionId: row.session_id, messageId: row.message_id } : null
 }
 
-export function clearReplyCommit(database: Database.Database): void {
-  database.prepare('DELETE FROM reply_commit WHERE id = 1').run()
+/** Every reply that can still be undone, the newest first. */
+export function replyCommits(database: Database.Database): ReplyCommit[] {
+  const rows = database.prepare('SELECT revision, session_id, message_id FROM reply_commits ORDER BY created_at DESC, rowid DESC').all() as {
+    revision: string
+    session_id: string
+    message_id: string
+  }[]
+  return rows.map((row) => ({ revision: row.revision, sessionId: row.session_id, messageId: row.message_id }))
+}
+
+export function clearReplyCommit(database: Database.Database, messageId: string): void {
+  database.prepare('DELETE FROM reply_commits WHERE message_id = ?').run(messageId)
+}
+
+export function clearReplyCommits(database: Database.Database): void {
+  database.prepare('DELETE FROM reply_commits').run()
 }
 
 export function rememberReply(sessionId: string, messageId: string, revision: string): void {

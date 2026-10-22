@@ -301,3 +301,12 @@ Decided in a grilling session; ADRs 0015 and 0016 and the glossary terms Tips an
 - The bar, the composer, the publish and revert windows and their notices use `lib/ui-text.ts` (German and English).
 - Colors are variables with an accent, and a dark set follows the system. Tried in the browser in light and dark, on a desktop and a phone-sized window.
 - Still to do in stage D: the chat (messages, folded steps, Undo on each change, chat picker in a chat header) and the Settings drawer with the two-tab phone layout. The Setup pill and chat picker still sit in the composer until then.
+
+### Stage D, step 2 is built (the chat)
+
+- The Computer / Phone toggle moved from the top bar to the preview toolbar, next to Reload, because it only changes the preview.
+- A chat header holds the chat picker, a Setup toggle (only while setup is open), "+ New", and delete with an inline "Delete this chat?" question. The composer now holds only the message field.
+- Your messages are bubbles on the right; the editor's replies have no box. Everything a reply did is folded into one line, for example "2 steps · 1 change saved"; opening it lists the saved changes and the tool steps. While a step runs, the line shows it with a pulsing dot.
+- The "working" line is in the editor's language and says what kind of thing is going on: looking things up, changing the website, checking the result. `toolKind` in `lib/activity.ts` sorts the tools into those groups.
+- Every reply that changed the site has its own Undo, not only the newest. The draft stores one commit per reply (`reply_commits`); `undoReply` takes any earlier reply back, as long as no later change edited the same files, and says so when one did. Revert draft clears them all.
+- The tips and the bar both say "Publish" and "Undo", so the words match the buttons.

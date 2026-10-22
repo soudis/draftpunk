@@ -2,8 +2,8 @@
 
 import { useChat } from '@ai-sdk/react'
 import { DefaultChatTransport, type UIMessage } from 'ai'
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
-import { activityLabel, savedChange, unchangedNote } from '@/lib/activity'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { activityState, savedChange, toolKind, unchangedNote } from '@/lib/activity'
 import { toPreviewPath } from '@/lib/site-route'
 import { phraseChange } from '@/lib/correct-phrase'
 import { presentChatError } from '@/lib/api-error'
@@ -23,7 +23,7 @@ import { useEditorLanguage } from './language'
 import { SetupStart } from './setup-start'
 import { TipsCard } from './tips'
 import { PictureDesk } from './pictures'
-import { TopBar, type PreviewDevice } from './topbar'
+import { TopBar } from './topbar'
 import { pageForPath, previewAddress, type PageEntry } from '@/lib/page-match'
 
 type SessionSummary = {
@@ -37,7 +37,7 @@ type ChatRecord = SessionSummary & {
   messages: UIMessage[]
 }
 
-type UndoTarget = { messageId: string }
+type PreviewDevice = 'desktop' | 'phone'
 
 function elementFrom(target: EventTarget | null): Element | null {
   if (!target || typeof target !== 'object') return null
@@ -75,7 +75,7 @@ export function ChatPanel({
   const [publishChanges, setPublishChanges] = useState<string[]>([])
   const [publishBusy, setPublishBusy] = useState(false)
   const [revertOpen, setRevertOpen] = useState(false)
-  const [undo, setUndo] = useState<UndoTarget | null>(null)
+  const [undoIds, setUndoIds] = useState<string[]>([])
   const [undoing, setUndoing] = useState(false)
   const shellRef = useRef<HTMLDivElement>(null)
   const previewRef = useRef<HTMLIFrameElement>(null)
@@ -130,8 +130,8 @@ export function ChatPanel({
   function refreshUndo() {
     void fetch('/api/draft')
       .then((response) => response.json())
-      .then((data: { undo?: UndoTarget | null }) => {
-        setUndo(data.undo?.messageId ? { messageId: data.undo.messageId } : null)
+      .then((data: { undos?: { messageId: string }[] }) => {
+        setUndoIds((data.undos ?? []).map((item) => item.messageId))
       })
   }
 
@@ -420,26 +420,27 @@ export function ChatPanel({
       return
     }
     setRevertOpen(false)
-    setUndo(null)
+    setUndoIds([])
     setNotice({ text: uiText(language, 'notice.reverted'), bad: false })
     reloadPreview()
   }
 
-  async function undoReply() {
+  async function undoReply(messageId: string) {
     setNotice(null)
     setUndoing(true)
     try {
       const response = await fetch('/api/draft', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'undo' }),
+        body: JSON.stringify({ action: 'undo', messageId }),
       })
       const data = (await response.json()) as { error?: string }
       if (!response.ok || data.error) {
         setNotice({ text: data.error ?? 'That reply could not be undone.', bad: true })
         return
       }
-      setUndo(null)
+      setNotice({ text: uiText(language, 'chat.undone'), bad: false })
+      refreshUndo()
       reloadPreview()
     } finally {
       setUndoing(false)
@@ -458,8 +459,6 @@ export function ChatPanel({
       pages={pages}
       currentSlug={shown?.entry.slug ?? null}
       onPage={openPage}
-      device={device}
-      onDevice={setDevice}
       changes={changeCount}
       publishBusy={publishBusy}
       onPublish={() => void openPublish()}
@@ -471,7 +470,39 @@ export function ChatPanel({
     />
     <div className="shell" ref={shellRef}>
       <section className="chat">
-        {notice && <p className={notice.bad ? 'error' : 'notice'}>{notice.text}</p>}
+        {current && (
+          <div className="chat-header">
+            {confirmDelete ? (
+              <>
+                <span className="chat-header-ask">{t('chat.deleteAsk')}</span>
+                <button type="button" className="danger-button" onClick={() => void deleteSession()}>{t('chat.deleteYes')}</button>
+                <button type="button" className="quiet-button" onClick={() => setConfirmDelete(false)}>{t('chat.keep')}</button>
+              </>
+            ) : (
+              <>
+                <select aria-label={t('chat.picker')} value={current.id} disabled={streamBusy} onChange={(event) => void openSession(event.target.value)}>
+                  {sessions.map((session) => (
+                    <option key={session.id} value={session.id}>
+                      {session.title}
+                    </option>
+                  ))}
+                </select>
+                {(setupActive || current.mode === 'setup') && (
+                  <button type="button" className="pill" aria-pressed={current.mode === 'setup'} disabled={streamBusy} onClick={() => selectMode('setup')}>
+                    {t('chat.setup')}
+                  </button>
+                )}
+                <button type="button" className="quiet-button" disabled={streamBusy} onClick={() => void createSession()}>
+                  + {t('chat.new')}
+                </button>
+                <button type="button" className="icon-button small" aria-label={t('chat.delete')} title={t('chat.delete')} disabled={streamBusy} onClick={() => setConfirmDelete(true)}>
+                  ⌫
+                </button>
+              </>
+            )}
+          </div>
+        )}
+        {notice && <p className={notice.bad ? 'error' : 'notice'} role={notice.bad ? 'alert' : 'status'}>{notice.text}</p>}
         {current && (
           <ChatConversation
             key={current.id}
@@ -500,53 +531,9 @@ export function ChatPanel({
               setNotice({ text: t('notice.needToken'), bad: true })
               setSettingsOpen(true)
             }}
-            undoMessageId={undo?.messageId ?? null}
+            undoIds={undoIds}
             undoing={undoing}
-            onUndo={() => void undoReply()}
-            controls={
-              <div className="composer-line">
-                {(setupActive || current.mode === 'setup') && (
-                  <div className="modes">
-                    <button type="button" aria-pressed={current.mode === 'setup'} disabled={streamBusy} onClick={() => selectMode('setup')}>
-                      Setup
-                    </button>
-                  </div>
-                )}
-                <div className="sessions">
-                  <select
-                    aria-label="Chat"
-                    value={current.id}
-                    disabled={streamBusy}
-                    onChange={(event) => void openSession(event.target.value)}
-                  >
-                    {sessions.map((session) => (
-                      <option key={session.id} value={session.id}>
-                        {session.title}
-                      </option>
-                    ))}
-                  </select>
-                  {confirmDelete ? (
-                    <>
-                      <button key="confirm" type="button" className="quiet" onClick={() => void deleteSession()}>
-                        Delete chat
-                      </button>
-                      <button key="keep" type="button" onClick={() => setConfirmDelete(false)}>
-                        Keep
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button key="new" type="button" disabled={streamBusy} onClick={() => void createSession()}>
-                        New
-                      </button>
-                      <button key="delete" type="button" className="quiet" disabled={streamBusy} onClick={() => setConfirmDelete(true)}>
-                        Delete
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            }
+            onUndo={(messageId) => void undoReply(messageId)}
           />
         )}
       </section>
@@ -578,6 +565,14 @@ export function ChatPanel({
             {t('preview.editMode')}
           </label>
           <span className="edit-mode-tip" id="edit-mode-tip">{correcting ? t('preview.editHint') : ''}</span>
+          <div className="segmented device-switch" role="group" aria-label={t('bar.device')}>
+            <button type="button" aria-pressed={device === 'desktop'} onClick={() => setDevice('desktop')}>
+              {t('bar.desktop')}
+            </button>
+            <button type="button" aria-pressed={device === 'phone'} onClick={() => setDevice('phone')}>
+              {t('bar.phone')}
+            </button>
+          </div>
           <button type="button" className="quiet-button" onClick={reloadPreview}>{t('preview.reload')}</button>
         </div>
         <div className="preview-stage" data-device={device}>
@@ -683,10 +678,9 @@ function ChatConversation({
   skipError,
   modelReady,
   onNeedToken,
-  undoMessageId,
+  undoIds,
   undoing,
   onUndo,
-  controls,
 }: {
   sessionId: string
   initialMessages: UIMessage[]
@@ -701,10 +695,9 @@ function ChatConversation({
   skipError: string
   modelReady: boolean
   onNeedToken: () => void
-  undoMessageId: string | null
+  undoIds: string[]
   undoing: boolean
-  onUndo: () => void
-  controls: ReactNode
+  onUndo: (messageId: string) => void
 }) {
   const modeRef = useRef(mode)
   modeRef.current = mode
@@ -730,7 +723,7 @@ function ChatConversation({
     },
   })
   const busy = status === 'submitted' || status === 'streaming'
-  const activity = activityLabel(messages, status)
+  const activity = activityState(messages, status)
   const apiError = error ? presentChatError(error.message) : null
   const messagesRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLTextAreaElement>(null)
@@ -779,16 +772,22 @@ function ChatConversation({
 
   useEffect(() => {
     messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight })
-  }, [messages, activity, error])
+  }, [messages, activity?.kind, error])
 
   return (
     <>
       <div className="messages" ref={messagesRef}>
         {messages.map((message) => {
           const note = message.role === 'assistant' ? unchangedNote(message.parts, status) : null
+          const pieces = chatPieces(message.parts)
+          const work = {
+            entries: pieces.flatMap((piece) => (piece.kind === 'tools' ? piece.entries : [])),
+            lines: pieces.flatMap((piece) => (piece.kind === 'saves' ? piece.lines : [])),
+          }
+          let workShown = false
           return (
           <article className={`msg ${message.role}`} key={message.id}>
-            {chatPieces(message.parts).map((piece, index) => {
+            {pieces.map((piece, index) => {
               if (piece.kind === 'text') return <ChatMarkdown key={index} text={piece.text} />
               if (piece.kind === 'error') {
                 const failure = presentChatError(piece.text)
@@ -799,13 +798,14 @@ function ChatConversation({
                   </p>
                 )
               }
-              if (piece.kind === 'saves') return <SaveNotes key={index} lines={piece.lines} />
-              return <ToolNotes key={index} entries={piece.entries} />
+              if (workShown) return null
+              workShown = true
+              return <WorkNotes key={index} language={language} entries={work.entries} lines={work.lines} />
             })}
-            {note && <p className="gaps">{note}</p>}
-            {message.role === 'assistant' && undoMessageId === message.id && (
-              <button type="button" className="undo" disabled={busy || undoing} onClick={onUndo}>
-                Undo
+            {note && <p className="gaps">{uiText(language, 'chat.unchanged')}</p>}
+            {message.role === 'assistant' && undoIds.includes(message.id) && (
+              <button type="button" className="undo" title={uiText(language, 'chat.undoTitle')} disabled={busy || undoing} onClick={() => onUndo(message.id)}>
+                ↩ {uiText(language, 'chat.undo')}
               </button>
             )}
           </article>
@@ -829,7 +829,7 @@ function ChatConversation({
         {messages.length === 0 && !busy && !(setupStart && mode === 'setup') && (
           <TipsCard language={language} onExample={(text) => fillDraftRef.current(text)} />
         )}
-        {activity && <p className="working" role="status">{activity}</p>}
+        {activity && <p className="working" role="status">{activityText(language, activity)}</p>}
         {apiError && (
           <p className="api-error" role="alert">
             <strong>{apiError.type}</strong>
@@ -838,7 +838,6 @@ function ChatConversation({
         )}
       </div>
       <div className="composer">
-        {controls}
         <form
           className="draft"
           onSubmit={(event) => {
@@ -1131,32 +1130,35 @@ function SettingsModal({
   )
 }
 
-function ToolNotes({ entries }: { entries: { label: string; done: boolean }[] }) {
-  const line = (entry: { label: string; done: boolean }) => (entry.done ? entry.label : `${entry.label}…`)
-  if (entries.length === 1 && entries[0]) return <p className="tool">{line(entries[0])}</p>
-  const running = entries.find((entry) => !entry.done)
-  return (
-    <details className="fold">
-      <summary>{running ? line(running) : `${entries.length} steps`}</summary>
-      <ul>
-        {entries.map((entry, index) => (
-          <li key={index}>{line(entry)}</li>
-        ))}
-      </ul>
-    </details>
-  )
+function activityText(language: EditorLanguage, activity: NonNullable<ReturnType<typeof activityState>>): string {
+  if (activity.kind === 'thinking') return uiText(language, 'activity.thinking')
+  if (activity.kind === 'writing') return uiText(language, 'activity.writing')
+  return uiText(language, `activity.${toolKind(activity.tool)}`)
 }
 
-function SaveNotes({ lines }: { lines: string[] }) {
-  const summary = lines.length === 1 ? '1 file updated' : `${lines.length} files updated`
+// Everything a reply did, folded into one line: the steps it took and the changes it saved.
+function WorkNotes({ language, entries, lines }: { language: EditorLanguage; entries: { label: string; done: boolean }[]; lines: string[] }) {
+  const running = entries.find((entry) => !entry.done)
+  const steps = entries.length === 1 ? uiText(language, 'chat.stepOne') : uiText(language, 'chat.steps', { count: entries.length })
+  const saved = lines.length === 0 ? '' : lines.length === 1 ? uiText(language, 'chat.savedOne') : uiText(language, 'chat.savedMany', { count: lines.length })
+  const summary = [entries.length > 0 ? (running ? `${running.label}…` : steps) : '', saved].filter(Boolean).join(' · ')
   return (
-    <details className="fold saves">
-      <summary>{summary}</summary>
-      <ul>
-        {lines.map((line, index) => (
-          <li key={index}>{line}</li>
-        ))}
-      </ul>
+    <details className="work">
+      <summary data-busy={running ? 'true' : undefined}>{summary}</summary>
+      {lines.length > 0 && (
+        <ul className="work-saves">
+          {lines.map((line, index) => (
+            <li key={index}>{line}</li>
+          ))}
+        </ul>
+      )}
+      {entries.length > 0 && (
+        <ul className="work-steps">
+          {entries.map((entry, index) => (
+            <li key={index}>{entry.done ? entry.label : `${entry.label}…`}</li>
+          ))}
+        </ul>
+      )}
     </details>
   )
 }

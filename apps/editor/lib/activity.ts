@@ -44,10 +44,22 @@ export function unchangedNote(
   return usedTool && !spoke ? 'Nothing was saved.' : null
 }
 
-export function activityLabel(
+export type ToolKind = 'read' | 'change' | 'check' | 'other'
+
+/** What a tool does, in one word, so the editor can say it in either language. */
+export function toolKind(name: string): ToolKind {
+  if (SITE_WRITES.has(name) || /^(?:add|propose|save|write|edit|set|fork|replace|delete)_/.test(name)) return 'change'
+  if (/^(?:read|list|search|inspect|site_map)/.test(name)) return 'read'
+  if (/^(?:check|preview)_/.test(name)) return 'check'
+  return 'other'
+}
+
+export type Activity = { kind: 'thinking' } | { kind: 'writing' } | { kind: 'tool'; tool: string }
+
+export function activityState(
   messages: { role: string; parts: { type: string; state?: string }[] }[],
   status: string,
-): string | null {
+): Activity | null {
   if (status !== 'submitted' && status !== 'streaming') return null
   const assistant = [...messages].reverse().find((message) => message.role === 'assistant')
   const tool = assistant?.parts.find(
@@ -56,6 +68,16 @@ export function activityLabel(
       part.state !== 'output-available' &&
       part.state !== 'output-error',
   )
-  if (tool) return `Using ${tool.type.replace(/^tool-/, '').replaceAll('_', ' ')}…`
-  return status === 'submitted' ? 'Thinking…' : 'Writing…'
+  if (tool) return { kind: 'tool', tool: tool.type.replace(/^tool-/, '') }
+  return status === 'submitted' ? { kind: 'thinking' } : { kind: 'writing' }
+}
+
+export function activityLabel(
+  messages: { role: string; parts: { type: string; state?: string }[] }[],
+  status: string,
+): string | null {
+  const state = activityState(messages, status)
+  if (!state) return null
+  if (state.kind === 'tool') return `Using ${state.tool.replaceAll('_', ' ')}…`
+  return state.kind === 'thinking' ? 'Thinking…' : 'Writing…'
 }

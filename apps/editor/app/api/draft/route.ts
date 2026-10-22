@@ -1,7 +1,7 @@
 import { generate } from '@schlor/generator'
-import { revertDraft, undoLastReply } from '@/lib/draft'
+import { revertDraft, undoReply } from '@/lib/draft'
 import { isAncestor } from '@/lib/git'
-import { clearReplyCommit, editorDatabase, replyCommit } from '@/lib/sessions'
+import { clearReplyCommit, editorDatabase, replyCommits } from '@/lib/sessions'
 import { sessionFromRequest } from '@/lib/session'
 import { siteRoot } from '@/lib/site'
 
@@ -11,23 +11,22 @@ export async function GET(request: Request) {
   const session = await sessionFromRequest(request)
   if (!session) return Response.json({ error: 'Login required' }, { status: 401 })
   const database = editorDatabase()
-  const row = replyCommit(database)
-  if (!row) return Response.json({ undo: null })
-  if (!isAncestor(siteRoot(), row.revision)) {
-    clearReplyCommit(database)
-    return Response.json({ undo: null })
-  }
-  return Response.json({ undo: { sessionId: row.sessionId, messageId: row.messageId } })
+  const undos = replyCommits(database).filter((row) => {
+    if (isAncestor(siteRoot(), row.revision)) return true
+    clearReplyCommit(database, row.messageId)
+    return false
+  })
+  return Response.json({ undos: undos.map((row) => ({ sessionId: row.sessionId, messageId: row.messageId })) })
 }
 
 export async function POST(request: Request) {
   const session = await sessionFromRequest(request)
   if (!session) return Response.json({ error: 'Login required' }, { status: 401 })
-  const body = (await request.json()) as { action?: string }
+  const body = (await request.json()) as { action?: string; messageId?: string }
   const root = siteRoot()
   try {
     if (body.action === 'undo') {
-      const result = undoLastReply(root, { name: session.name, email: session.email })
+      const result = undoReply(root, { name: session.name, email: session.email }, String(body.messageId ?? ''))
       if (!result.undone) return Response.json({ error: result.error }, { status: 400 })
       generate(root)
       return Response.json({ ok: true })

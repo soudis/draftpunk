@@ -4,9 +4,9 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import Database from 'better-sqlite3'
-import { revertDraft, undoLastReply } from './draft'
+import { revertDraft, undoReply } from './draft'
 import { commitAll, ensureGit, git } from './git'
-import { migrate, recordReplyCommit, replyCommit } from './sessions'
+import { migrate, recordReplyCommit, replyCommit, replyCommits } from './sessions'
 
 const author = { name: 'Ada', email: 'ada@schlor.org' }
 
@@ -37,12 +37,12 @@ test('undo restores the reply when a later change edited other files', () => {
   fs.writeFileSync(path.join(root, 'media', 'note.txt'), 'picture stand-in\n')
   commitAll(root, 'Save picture note.txt', author)
   const main = git(root, ['rev-parse', 'main']).trim()
-  assert.deepEqual(undoLastReply(root, author, opened), { undone: true })
+  assert.deepEqual(undoReply(root, author, 'message', opened), { undone: true })
   assert.equal(fs.readFileSync(page, 'utf8'), before)
   assert.equal(fs.readFileSync(path.join(root, 'media', 'note.txt'), 'utf8'), 'picture stand-in\n')
   assert.equal(git(root, ['rev-parse', 'main']).trim(), main)
   assert.equal(fs.readFileSync(path.join(root, 'published', 'index.html'), 'utf8'), 'public')
-  assert.equal(replyCommit(opened), null)
+  assert.equal(replyCommits(opened).length, 0)
 })
 
 test('undo refuses when a later change edited the same file', () => {
@@ -55,11 +55,11 @@ test('undo refuses when a later change edited the same file', () => {
   recordReplyCommit(opened, 'session', 'message', revision)
   fs.appendFileSync(page, '\n# second\n')
   commitAll(root, 'Second edit', author)
-  const result = undoLastReply(root, author, opened)
+  const result = undoReply(root, author, 'message', opened)
   assert.equal(result.undone, false)
   if (!result.undone) assert.match(result.error, /later change/)
   assert.match(fs.readFileSync(page, 'utf8'), /second/)
-  assert.equal(replyCommit(opened)?.revision, revision)
+  assert.equal(replyCommit(opened, 'message')?.revision, revision)
 })
 
 test('revert draft puts the draft back on the public site', () => {
@@ -77,5 +77,27 @@ test('revert draft puts the draft back on the public site', () => {
   assert.equal(git(root, ['rev-parse', 'main']).trim(), main)
   assert.equal(fs.readFileSync(page, 'utf8'), before)
   assert.equal(fs.readFileSync(path.join(root, 'published', 'index.html'), 'utf8'), 'public')
-  assert.equal(replyCommit(opened), null)
+  assert.equal(replyCommits(opened).length, 0)
+})
+
+test('an earlier reply can be undone while a later reply stays', () => {
+  const root = site()
+  const opened = memory()
+  const home = path.join(root, 'content', 'pages', 'home.yml')
+  const before = fs.readFileSync(home, 'utf8')
+  fs.appendFileSync(home, '\n# first reply\n')
+  const first = commitAll(root, 'First reply', author)
+  assert.ok(first)
+  recordReplyCommit(opened, 'session', 'one', first)
+  fs.writeFileSync(path.join(root, 'media', 'note.txt'), 'second reply\n')
+  const second = commitAll(root, 'Second reply', author)
+  assert.ok(second)
+  recordReplyCommit(opened, 'session', 'two', second)
+  assert.deepEqual(replyCommits(opened).map((row) => row.messageId), ['two', 'one'])
+  assert.deepEqual(undoReply(root, author, 'one', opened), { undone: true })
+  assert.equal(fs.readFileSync(home, 'utf8'), before)
+  assert.equal(fs.readFileSync(path.join(root, 'media', 'note.txt'), 'utf8'), 'second reply\n')
+  assert.deepEqual(replyCommits(opened).map((row) => row.messageId), ['two'])
+  const unknown = undoReply(root, author, 'nothing', opened)
+  assert.equal(unknown.undone, false)
 })

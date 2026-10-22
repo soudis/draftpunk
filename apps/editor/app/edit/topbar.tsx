@@ -4,8 +4,6 @@ import { useEffect, useRef, useState } from 'react'
 import type { PageEntry } from '@/lib/page-match'
 import { uiText, type EditorLanguage } from '@/lib/ui-text'
 
-export type PreviewDevice = 'desktop' | 'phone'
-
 /** Closes on a click outside and on Escape. */
 function usePopover() {
   const [open, setOpen] = useState(false)
@@ -34,8 +32,6 @@ export function TopBar({
   pages,
   currentSlug,
   onPage,
-  device,
-  onDevice,
   changes,
   publishBusy,
   onPublish,
@@ -50,8 +46,6 @@ export function TopBar({
   pages: PageEntry[]
   currentSlug: string | null
   onPage: (slug: string) => void
-  device: PreviewDevice
-  onDevice: (device: PreviewDevice) => void
   /** How many unpublished changes the draft has, or null while that is not known. */
   changes: number | null
   publishBusy: boolean
@@ -81,14 +75,6 @@ export function TopBar({
           </select>
         </label>
       )}
-      <div className="segmented device-switch" role="group" aria-label={t('bar.device')}>
-        <button type="button" aria-pressed={device === 'desktop'} onClick={() => onDevice('desktop')}>
-          {t('bar.desktop')}
-        </button>
-        <button type="button" aria-pressed={device === 'phone'} onClick={() => onDevice('phone')}>
-          {t('bar.phone')}
-        </button>
-      </div>
       <div className="topbar-end">
         <span className="change-count" aria-live="polite">{countText}</span>
         <button className="publish" type="button" disabled={publishBusy} onClick={onPublish}>

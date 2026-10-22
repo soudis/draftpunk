@@ -1,16 +1,18 @@
 import type Database from 'better-sqlite3'
 import { commitFiles, filesChangedSince, isAncestor, revertDraftToPublic, revisionsMatch, undoRevision, git, type GitAuthor } from './git'
-import { clearReplyCommit, editorDatabase, replyCommit } from './sessions'
+import { clearReplyCommit, clearReplyCommits, editorDatabase, replyCommit } from './sessions'
 
-export function undoLastReply(
+/** Undo one reply. It works for any earlier reply, as long as no later change edited the files that reply changed. */
+export function undoReply(
   root: string,
   author: GitAuthor,
+  messageId: string,
   database: Database.Database = editorDatabase(),
 ): { undone: true } | { undone: false; error: string } {
-  const row = replyCommit(database)
+  const row = replyCommit(database, messageId)
   if (!row) return { undone: false, error: 'Nothing to undo.' }
   if (!isAncestor(root, row.revision)) {
-    clearReplyCommit(database)
+    clearReplyCommit(database, messageId)
     return { undone: false, error: 'That reply is no longer in the draft.' }
   }
   const own = new Set(commitFiles(root, row.revision))
@@ -23,7 +25,7 @@ export function undoLastReply(
   } catch {
     return { undone: false, error: 'That reply could not be undone.' }
   }
-  clearReplyCommit(database)
+  clearReplyCommit(database, messageId)
   return { undone: true }
 }
 
@@ -32,6 +34,6 @@ export function revertDraft(root: string, database: Database.Database = editorDa
     return { reverted: false, error: 'The draft already matches the public site.' }
   }
   revertDraftToPublic(root)
-  clearReplyCommit(database)
+  clearReplyCommits(database)
   return { reverted: true }
 }
