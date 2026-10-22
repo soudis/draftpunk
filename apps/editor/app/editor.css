@@ -553,3 +553,13 @@ textarea {
 .setup-review dt button { padding: 0; border: 0; background: none; text-decoration: underline; cursor: pointer; font: inherit; color: inherit; }
 .setup-review dd { margin: 0; font-size: 14px; white-space: pre-wrap; }
 .setup-skip { margin: 4px 0 0; text-align: center; }
+
+/* Tips: advice for an empty chat. */
+.tips { padding: 14px 16px; margin: 4px 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 8px; }
+.tips h2 { margin: 0; font-size: 16px; }
+.tips ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.tips-label { margin: 4px 0 0; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.tips .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tips .chip { border-radius: 999px; padding: 6px 12px; text-align: left; font-size: 13px; }
+.tips-modal { max-width: 460px; }
+.icon-button { width: 28px; height: 28px; padding: 0; border-radius: 50%; }

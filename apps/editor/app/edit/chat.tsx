@@ -21,6 +21,7 @@ import type { EditorMode } from '@/lib/mode'
 import { uiText, EDITOR_LANGUAGES, parseEditorLanguage, type EditorLanguage } from '@/lib/ui-text'
 import { useEditorLanguage } from './language'
 import { SetupStart } from './setup-start'
+import { TipsCard } from './tips'
 import { PictureDesk } from './pictures'
 
 type SessionSummary = {
@@ -83,6 +84,8 @@ export function ChatPanel({
   const [language, setLanguage] = useEditorLanguage()
   const [setupActive, setSetupActive] = useState(setupOpen)
   const [skipError, setSkipError] = useState('')
+  const [tipsOpen, setTipsOpen] = useState(false)
+  const fillDraftRef = useRef<(text: string) => void>(() => {})
   const [correcting, setCorrecting] = useState(false)
   const [correctError, setCorrectError] = useState('')
   const correctingRef = useRef(false)
@@ -416,6 +419,9 @@ export function ChatPanel({
             <button type="button" onClick={() => setSettingsOpen(true)}>
               Settings
             </button>
+            <button type="button" className="icon-button" aria-label={uiText(language, 'tips.button')} title={uiText(language, 'tips.button')} onClick={() => setTipsOpen(true)}>
+              ?
+            </button>
             <AccountMenu name={accountName} picture={accountPicture} />
           </div>
         </header>
@@ -438,6 +444,7 @@ export function ChatPanel({
             }}
             onSaved={reloadPreview}
             language={language}
+            fillDraftRef={fillDraftRef}
             setupStart={setupActive}
             onSkipSetup={() => void skipSetup()}
             skipError={skipError}
@@ -573,6 +580,22 @@ export function ChatPanel({
           </div>
         </div>
       )}
+      {tipsOpen && (
+        <div className="modal-back" onClick={() => setTipsOpen(false)}>
+          <div className="modal tips-modal" role="dialog" aria-modal="true" aria-label={uiText(language, 'tips.heading')} onClick={(event) => event.stopPropagation()}>
+            <TipsCard
+              language={language}
+              onExample={(text) => {
+                setTipsOpen(false)
+                fillDraftRef.current(text)
+              }}
+            />
+            <div className="modal-actions">
+              <button type="button" onClick={() => setTipsOpen(false)}>{uiText(language, 'tips.close')}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {settingsOpen && (
         <SettingsModal
           siteName={shownName}
@@ -601,6 +624,7 @@ function ChatConversation({
   onFinished,
   onSaved,
   language,
+  fillDraftRef,
   setupStart,
   onSkipSetup,
   skipError,
@@ -618,6 +642,7 @@ function ChatConversation({
   onFinished: () => void
   onSaved: () => void
   language: EditorLanguage
+  fillDraftRef: { current: (text: string) => void }
   setupStart: boolean
   onSkipSetup: () => void
   skipError: string
@@ -661,6 +686,16 @@ function ChatConversation({
   useEffect(() => {
     onBusy(busy)
   }, [busy, onBusy])
+
+  useEffect(() => {
+    fillDraftRef.current = (text: string) => {
+      const field = draftRef.current
+      if (!field) return
+      field.value = text
+      field.focus()
+      field.setSelectionRange(text.length, text.length)
+    }
+  }, [fillDraftRef])
 
   useEffect(() => {
     messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight })
@@ -710,6 +745,9 @@ function ChatConversation({
               void sendMessage({ text }).then(() => onFinished())
             }}
           />
+        )}
+        {messages.length === 0 && !busy && !(setupStart && mode === 'setup') && (
+          <TipsCard language={language} onExample={(text) => fillDraftRef.current(text)} />
         )}
         {activity && <p className="working" role="status">{activity}</p>}
         {apiError && (

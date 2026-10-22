@@ -285,3 +285,10 @@ Decided in a grilling session; ADRs 0015 and 0016 and the glossary terms Tips an
 - The editor has a language (German by default, English in Settings) kept per browser; only the setup texts use it so far (`lib/ui-text.ts`).
 - The setup prompt knows the format of that first message and says to use the answers, ask nothing already answered, and leave missing details as short placeholders.
 - Tried in the browser against a mock model: the questions, chips, review, send, skip, and a second new chat. Not yet tried with a real model.
+
+### Stage C is built
+
+- An empty chat shows a short Tips card: four points (say what should change, Edit Mode for text on the page, Undo, Publish when happy) and three example sentences. An example fills the composer and focuses it; it does not send.
+- A "?" button in the top bar opens the same tips in a window at any time. The card goes away once the chat has a message.
+- The texts are in `lib/ui-text.ts` in German and English; a test checks that both languages have every key and that each tip stays short.
+- Tried in the browser: the card, the example chips, the "?" window, the language switch to English.
