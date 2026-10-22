@@ -85,6 +85,12 @@ Phase 5 is built (reading other websites):
 - Tried on schlor.org and two other public sites (5–10 seconds a page).
 - Not built: the `import_pages` tool of the plan. The importer package knows one WordPress site; a general bulk import is better built from `site_map` and `read_page_text` once the agent has been seen to use them.
 
+Phase 6 is built (design system and durable rules):
+- `design/tokens.yml` has colors (with an on- color for each fill), fonts, corner radii and content widths. The generator turns it into the Tailwind theme (`bg-primary`, `text-on-primary`, `font-serif`, `rounded-card`, `max-w-content`). Spacing tokens were left out: Tailwind 4 has no named spacing keys that generate classes. The starter layouts use the tokens, and the prompt lists them.
+- The token lint is advice, as decided: a write is done, and the tool lists what is new in it: a raw color (named as a token when it is one, or the nearest token), a font that is not a token, a default palette color, an arbitrary color value, an inline style. The same finding is not told again. `check_design` reviews every file, token pairs that read badly together (a text color on its fill under 4.5:1), layouts nobody uses, and layouts that take exactly the same slots. The catalog also shows "same slots as".
+- `add_rule` keeps a lasting preference in `design/rules.md` (one line, at most 30, no duplicates), and the prompt lists the rules. Setup proposals may carry `tokens`.
+- ADR 0014 records that tokens advise and do not refuse.
+
 Not built yet: reusable sections shared by several layouts (the starter layouts repeat their markup). The importer package writes the new page format but only knows the old fixed layouts.
 
 ## 3. Phases

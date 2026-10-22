@@ -1,0 +1,24 @@
+colors:
+  page: "#ffffff"
+  ink: "#1c1917"
+  muted: "#57534e"
+  heading: "#3f6f64"
+  link: "#8a5a44"
+  primary: "#3f6f64"
+  on-primary: "#ffffff"
+  accent: "#8a5a44"
+  on-accent: "#ffffff"
+  surface: "#e7e1d5"
+  on-surface: "#1c1917"
+  dark: "#292524"
+  on-dark: "#ffffff"
+  border: "#d6d3d1"
+fonts:
+  sans: '"Source Sans 3", ui-sans-serif, system-ui, sans-serif'
+  serif: '"Source Serif 4", ui-serif, Georgia, serif'
+radius:
+  control: 0px
+  card: 0px
+widths:
+  content: 64rem
+  text: 48rem

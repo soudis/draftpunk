@@ -4,6 +4,8 @@ import { writeYaml, type EventDoc, type PlaceDoc } from './content'
 import { pageLayoutsOrThrow, replaceLayout } from './generate'
 import { GENERATED_LAYOUTS, layoutExists, listLayoutNames, removeLayoutFolder, writeLayout } from './layouts'
 import { checkPage, listPageSlugs, readPage, writePage } from './pages'
+import { stringify } from 'yaml'
+import { parseTokens } from './tokens'
 import { readEventFields, readSiteConfig, readYamlFile, writeYamlFile, type SiteLanguage } from './model'
 
 export type SetupProposal = {
@@ -19,6 +21,7 @@ export type SetupProposal = {
   look?: { styles?: string; shell?: string; brief?: string }
   nav?: unknown
   labels?: Record<string, Record<string, string>>
+  tokens?: unknown
   pages?: {
     slug: string
     layout: string
@@ -99,6 +102,12 @@ export function applyProposal(root: string, proposal: SetupProposal, finish = fa
     const current = readYamlFile<Record<string, unknown>>(path.join(root, 'design', 'labels.yml'), {})
     writeYamlFile(path.join(root, 'design', 'labels.yml'), { ...current, ...proposal.labels })
     notes.push('labels')
+  }
+  if (proposal.tokens !== undefined) {
+    const text = stringify(proposal.tokens)
+    parseTokens(text)
+    fs.writeFileSync(path.join(root, 'design', 'tokens.yml'), text)
+    notes.push('tokens')
   }
   if (proposal.look?.styles) {
     fs.writeFileSync(path.join(root, 'design', 'styles.css'), proposal.look.styles)

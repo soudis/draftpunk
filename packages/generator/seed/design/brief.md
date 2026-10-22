@@ -4,6 +4,8 @@ Pages are content. The shell, the layouts, and the stylesheets decide how every 
 
 Use calm, neutral colors. Type is Source Sans for text and Source Serif for headings. Corners stay square. The header carries the project name and the main sections. The footer carries the legal links and the year.
 
+Colors, fonts, corner radii and content widths are the design tokens in tokens.yml. Layouts use them by name (bg-primary, text-on-primary, font-serif, rounded-card, max-w-content), not by value. The person's lasting preferences are in rules.md.
+
 Each page picks one layout. Each layout is a folder with the slots it shows, its markup, and its own styles. The page's content has the shape of those slots. The calendar, the event page, and the archive are generated. Do not invent a second calendar in a page.
 
 Content may use headings, lists, links, images, figures, and tables. It may not carry its own colors, classes, or scripts. When the design changes, every existing page, including old news, has to follow.

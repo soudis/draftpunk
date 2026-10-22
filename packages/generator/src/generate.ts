@@ -34,6 +34,7 @@ import {
 } from './model'
 import { listPageSlugs, pageHasLanguage, readPage, writePage, type PageFile } from './pages'
 import { resolveSlots } from './slots'
+import { readTokens, tokensCss } from './tokens'
 
 export type GenerateResult = {
   pages: number
@@ -552,6 +553,7 @@ function buildCss(designDir: string, outFile: string): void {
   const imported = original.includes('@import "tailwindcss";')
     ? original.replace('@import "tailwindcss";', `@import "${entry}";`)
     : `@import "${entry}";\n${original}`
+  const theme = tokensCss(readTokens(path.dirname(designDir)))
   const layoutStyles = listLayoutNames(designDir)
     .map((name) => {
       const file = path.join(layoutFolder(designDir, name), 'style.css')
@@ -559,7 +561,7 @@ function buildCss(designDir: string, outFile: string): void {
     })
     .filter(Boolean)
     .join('\n')
-  fs.writeFileSync(input, `${imported}\n${layoutStyles}\n`)
+  fs.writeFileSync(input, `${imported}\n${theme}\n${layoutStyles}\n`)
   try {
     const result = spawnSync(process.execPath, [cli, '--input', input, '--output', outFile], {
       cwd: designDir,

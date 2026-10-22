@@ -1,7 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { formatCatalog, layoutCatalog, pagesByLayout, readSiteConfig } from '@schlor/generator'
+import { formatCatalog, layoutCatalog, pagesByLayout, readSiteConfig, readTokens, tokenSummary } from '@schlor/generator'
 import { listReferences } from './references'
+import { readRules } from './rules'
 import type { EditorMode } from './mode'
 
 // The static part comes first and never changes between requests, so a provider that
@@ -24,6 +25,11 @@ const EDIT_RULES = `You edit a housing project's website with tools. You may cha
 - To drop a layout, replace_layout moves its pages. delete_layout removes an unused one. The event, calendar, and archive layouts are generated: change their template with write_design (layouts/event/template.njk) and never remove them.
 - Pictures go in image slots. Call fit_picture for a picture on a page you are writing, then use the address it returns.
 
+## Tokens and rules
+- Colors, fonts, corner radii, and content widths are design tokens, kept in tokens.yml and listed below. In a layout or a stylesheet use them by name: bg-primary, text-on-primary, text-heading, font-serif, rounded-card, max-w-content in a class, or var(--color-primary) in CSS. Do not write a color value or name a font that is not a token. To change the look of the whole site, change a token with edit_design. When the site needs a new color, add it to tokens.yml first, with an on- color that reads well on it.
+- The tool tells you when a file uses a raw color, a font that is not a token, a default palette color, or an inline style. That is advice: change what is worth changing. check_design reviews the whole design.
+- When the person states a preference that should hold for the whole site, such as “buttons are always square” or “no full-bleed photos”, call add_rule with one short line. Follow the rules listed below.
+
 ## The brief
 design/brief.md is the shared look of the whole site: colors, type, spacing, mood. It is not a log and holds no page sentences. A layout's purpose belongs in its own layout.yml, not in the brief. After you change the stylesheet, the shell, or the labels so that the shared look changes, update the brief. When asked to refine the brief, rewrite it from the stylesheet and the shell.
 
@@ -40,7 +46,7 @@ const SETUP_RULES = `You are in setup: the first conversation that decides a new
 ## Setup
 - From a URL, read the site as described under Other sites, including a post or a gallery. That does not import a full archive.
 - Propose the languages, the layouts (each with a name, a purpose, its slots, a template, and styles), the labels, the event fields, the look, and a first pass of pages (each with a slug, a layout, a title per language, and slot values). Record it with propose_setup and wait.
-- A proposal is an object: site, layouts, dropLayouts, labels, fields, look {styles, shell, brief}, nav, pages, events, places. layouts and pages follow the rules of write_layout and write_page.
+- A proposal is an object: site, tokens, layouts, dropLayouts, labels, fields, look {styles, shell, brief}, nav, pages, events, places. tokens has the groups colors, fonts, radius, and widths, as in tokens.yml: build them from the site the person likes, with an on- color for every fill color. layouts and pages follow the rules of write_layout and write_page.
 - A directive that already names a decision is acceptance for that decision: call accept_setup with that part and leave finish false. When the person accepts the whole proposal, call accept_setup with useRecorded and finish.
 - Keep the event, place, calendar, and archive layouts.
 - The first language has no address prefix. A language marked optional does not block publish.`
@@ -68,7 +74,17 @@ export function systemPrompt(mode: EditorMode, root: string, now: Date = new Dat
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: site.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
   const looking = `\n\n${features.browser ? BROWSER_SITE_RULES : SITE_RULES}${features.browser ? `\n\n${BROWSER_RULES}${features.vision ? `\n${VISION_RULES}` : ''}` : ''}`
   const rules = mode === 'setup' ? `${EDIT_RULES}${looking}\n\n${SETUP_RULES}` : `${EDIT_RULES}${looking}`
+  const tokens = (() => {
+    try {
+      return tokenSummary(readTokens(root))
+    } catch {
+      return ''
+    }
+  })()
+  const lasting = readRules(root)
+  const tokenBlock = tokens ? `\n\nDesign tokens, to use by name:\n${tokens}` : ''
+  const ruleBlock = lasting.length > 0 ? `\n\nRules from the person, for the whole site:\n${lasting.map((rule) => `- ${rule}`).join('\n')}` : ''
   const references = listReferences(root)
   const saved = references.length > 0 ? `\n\nSaved references, sites to match:\n${references.map((item) => `- ${item.host}${item.note ? ` — ${item.note}` : ''}`).join('\n')}` : ''
-  return `${rules}\n\n# This site\nToday: ${today} (${site.timezone}).\nLanguages, first is the default: ${languages}.\n\nLayouts:\n${catalog}${saved}\n\nDesign brief:\n${brief}`
+  return `${rules}\n\n# This site\nToday: ${today} (${site.timezone}).\nLanguages, first is the default: ${languages}.\n\nLayouts:\n${catalog}${tokenBlock}${ruleBlock}${saved}\n\nDesign brief:\n${brief}`
 }

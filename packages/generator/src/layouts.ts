@@ -168,10 +168,23 @@ export type CatalogEntry = {
   purpose: string
   signature: string
   pages: string[]
+  /** Other layouts that take exactly the same slots. A hint to merge, never a rule. */
+  similar: string[]
 }
 
 /** What the agent sees of the site's layouts: what each is for, what it takes, and who uses it. */
 export function layoutCatalog(designDir: string, pagesByLayout: Map<string, string[]>): CatalogEntry[] {
+  const entries = layoutEntries(designDir, pagesByLayout)
+  return entries.map((entry) => ({
+    ...entry,
+    similar:
+      entry.kind === 'page' && entry.signature !== '(no slots)'
+        ? entries.filter((other) => other.name !== entry.name && other.kind === 'page' && other.signature === entry.signature).map((other) => other.name)
+        : [],
+  }))
+}
+
+function layoutEntries(designDir: string, pagesByLayout: Map<string, string[]>): Omit<CatalogEntry, 'similar'>[] {
   return listLayoutNames(designDir).flatMap((name) => {
     try {
       const def = readLayout(designDir, name)
@@ -195,7 +208,8 @@ export function formatCatalog(entries: CatalogEntry[]): string {
     .map((entry) => {
       const used = entry.pages.length === 0 ? 'unused' : entry.pages.length <= 3 ? entry.pages.join(', ') : `${entry.pages.length} pages`
       const purpose = entry.purpose ? ` — ${entry.purpose}` : ''
-      return `- ${entry.name}${purpose}\n  slots: ${entry.signature}\n  used by: ${used}`
+      const similar = entry.similar.length > 0 ? `\n  same slots as: ${entry.similar.join(', ')}` : ''
+      return `- ${entry.name}${purpose}\n  slots: ${entry.signature}\n  used by: ${used}${similar}`
     })
     .join('\n')
 }

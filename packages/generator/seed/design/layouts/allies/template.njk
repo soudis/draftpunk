@@ -1,18 +1,18 @@
 {% extends "shell.njk" %}
 {% block body %}
 <header class="mx-auto max-w-5xl px-6 pt-12">
-  <h1 class="font-serif text-4xl text-teal">{{ title }}</h1>
-  {% if date %}<p class="mt-2 text-sm text-navy/70">{{ date }}</p>{% endif %}
+  <h1 class="font-serif text-4xl text-heading">{{ title }}</h1>
+  {% if date %}<p class="mt-2 text-sm text-muted">{{ date }}</p>{% endif %}
 </header>
 {% if slots.body %}<div class="prose mx-auto mt-8 max-w-3xl px-6">{{ slots.body }}</div>{% endif %}
 {% if slots.groups and slots.groups.length %}
 <section class="mx-auto max-w-5xl px-6 py-12">
   {% for group in slots.groups %}
-  <h2 class="mt-10 font-serif text-2xl text-teal">{{ group.title }}</h2>
+  <h2 class="mt-10 font-serif text-2xl text-heading">{{ group.title }}</h2>
   <ul class="mt-4 grid gap-6 md:grid-cols-3">
     {% for link in group.links %}
     <li>
-      <a class="block text-coral" href="{{ link.href }}">
+      <a class="block text-link" href="{{ link.href }}">
         {% if link.image %}<img class="mb-2 h-20 w-auto object-contain" src="{{ link.image }}" alt="">{% endif %}
         {{ link.label }}
       </a>

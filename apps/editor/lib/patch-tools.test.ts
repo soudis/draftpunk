@@ -28,7 +28,7 @@ function room(root: string) {
       },
       template:
         '{% extends "shell.njk" %}{% block body %}<h1>{{ title }}</h1>{{ slots.body }}{% for f in slots.facts %}<p class="fact">{{ f.label }}: {{ f.value }}</p>{% endfor %}<img src="{{ slots.photo }}" alt="">{% endblock %}',
-      style: '.fact { color: #3f6f64; }\n',
+      style: '.fact { color: var(--color-primary); }\n',
     },
     call,
   )
@@ -117,19 +117,21 @@ test('edit_design and edit_layout change a small piece and run the same checks a
   await room(root)
   const design = designTools(root)
   const styles = path.join(root, 'design', 'styles.css')
-  const result = await design.edit_design.execute!({ path: 'styles.css', find: '#3f6f64', replace: '#1f5f54' }, call)
-  assert.match(String(result), /Replaced one match in design\/styles\.css\. Updated design\/styles\.css/)
-  assert.match(fs.readFileSync(styles, 'utf8'), /--color-teal: #1f5f54/)
+  const tokens = path.join(root, 'design', 'tokens.yml')
+  const result = await design.edit_design.execute!({ path: 'tokens.yml', find: 'primary: "#3f6f64"', replace: 'primary: "#1f5f54"' }, call)
+  assert.match(String(result), /Replaced one match in design\/tokens\.yml\. Updated design\/tokens\.yml/)
+  assert.match(fs.readFileSync(tokens, 'utf8'), /primary: "#1f5f54"/)
+  assert.match(fs.readFileSync(path.join(root, 'dist', 'assets', 'styles.css'), 'utf8'), /--color-primary:\s*#1f5f54/)
   await assert.rejects(
-    () => design.edit_design.execute!({ path: 'styles.css', find: '--color-ink: #1c1917;', replace: '}\nhtml { opacity: 0 }\n.x {' }, call),
+    () => design.edit_design.execute!({ path: 'styles.css', find: '.prose :where(a) {', replace: '}\nhtml { opacity: 0 }\n.x {' }, call),
     /opacity 0 on html or body/,
   )
-  assert.match(fs.readFileSync(styles, 'utf8'), /--color-ink: #1c1917;/)
+  assert.match(fs.readFileSync(styles, 'utf8'), /\.prose :where\(a\) \{/)
   await assert.rejects(() => design.edit_design.execute!({ path: 'shell.njk', find: '<footer', replace: '<footer>Alle Rechte vorbehalten</footer><footer' }, call), /holds the text/)
   await assert.rejects(() => design.edit_design.execute!({ path: 'styles.css', find: 'nothing like this', replace: 'x' }, call), /that text is not there/)
   await assert.rejects(() => design.edit_design.execute!({ path: 'layouts/room/layout.yml', find: 'purpose:', replace: 'purpose:' }, call), /edit_layout/)
 
-  const style = await design.edit_layout.execute!({ name: 'room', part: 'style', find: '#3f6f64', replace: 'tomato' }, call)
+  const style = await design.edit_layout.execute!({ name: 'room', part: 'style', find: 'var(--color-primary)', replace: 'tomato' }, call)
   assert.match(String(style), /Replaced one match in layouts\/room\/style\.css\. Updated layout room\./)
   assert.match(fs.readFileSync(path.join(root, 'design', 'layouts', 'room', 'style.css'), 'utf8'), /tomato/)
   const slots = await design.edit_layout.execute!({ name: 'room', part: 'layout', find: 'photo: image', replace: 'photo: image\n  note: text' }, call)
@@ -145,8 +147,8 @@ test('edit_design and edit_layout change a small piece and run the same checks a
 })
 
 test('a small edit is a small tool call', () => {
-  const edit = JSON.stringify({ path: 'styles.css', find: '#3f6f64', replace: '#1f5f54' })
-  const stylesheet = fs.readFileSync(path.join(newSite(), 'design', 'styles.css'), 'utf8')
-  assert.ok(edit.length < stylesheet.length / 5, `${edit.length} against ${stylesheet.length}`)
+  const edit = JSON.stringify({ path: 'tokens.yml', find: 'primary: "#3f6f64"', replace: 'primary: "#1f5f54"' })
+  const stylesheet = fs.readFileSync(path.join(newSite(), 'design', 'tokens.yml'), 'utf8')
+  assert.ok(edit.length < stylesheet.length / 3, `${edit.length} against ${stylesheet.length}`)
   assert.ok(edit.length < 100)
 })

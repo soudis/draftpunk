@@ -44,6 +44,8 @@ export { bilingualGaps, checkPage, deletePage, listPageSlugs, pageFilePath, page
 export { applyProposal, readProposal, recordProposal } from './setup'
 export { readLabels, readSiteConfig, setupAccepted, readEventFields } from './model'
 export { SLOT_TYPES, parseSlotSchema, resolveSlots, serializeSlotSchema, slotSignature, slotTexts, validateSlots } from './slots'
+export { contrastRatio, contrastWarnings, emptyTokens, nearestColor, parseTokens, readTokens, tokenSummary, tokensCss } from './tokens'
+export type { Tokens } from './tokens'
 export type { Lang, EventDoc, PlaceDoc } from './content'
 export type { CatalogEntry, LayoutCheck, LayoutDef, LayoutFiles } from './layouts'
 export type { PageFile } from './pages'

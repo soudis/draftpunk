@@ -1,19 +1,19 @@
 {% extends "shell.njk" %}
 {% block body %}
 <header class="mx-auto max-w-5xl px-6 pt-12">
-  <h1 class="font-serif text-4xl text-teal">{{ title }}</h1>
-  {% if date %}<p class="mt-2 text-sm text-navy/70">{{ date }}</p>{% endif %}
+  <h1 class="font-serif text-4xl text-heading">{{ title }}</h1>
+  {% if date %}<p class="mt-2 text-sm text-muted">{{ date }}</p>{% endif %}
 </header>
 {% if slots.body %}<div class="prose mx-auto mt-8 max-w-3xl px-6">{{ slots.body }}</div>{% endif %}
 {% if slots.groups and slots.groups.length %}
 <section class="mx-auto max-w-5xl px-6 py-12">
   {% for group in slots.groups %}
-  <h2 class="mt-10 font-serif text-2xl text-teal">{{ group.title }}</h2>
+  <h2 class="mt-10 font-serif text-2xl text-heading">{{ group.title }}</h2>
   <ul class="mt-4 grid gap-4 md:grid-cols-3">
     {% for item in group.items %}
-    <li class="border border-navy/10 p-3">
+    <li class="border border-border p-3">
       {% if item.src %}<a href="{{ item.href or item.src }}"><img class="h-40 w-full object-cover" src="{{ item.src }}" alt="{{ item.label or '' }}"></a>{% endif %}
-      {% if item.label %}<a class="mt-2 block text-sm text-coral" href="{{ item.href or item.src }}">{{ item.label }}</a>{% endif %}
+      {% if item.label %}<a class="mt-2 block text-sm text-link" href="{{ item.href or item.src }}">{{ item.label }}</a>{% endif %}
     </li>
     {% endfor %}
   </ul>

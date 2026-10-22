@@ -7,6 +7,8 @@ import { guardDesignWrite } from './layout-guard'
 import type { EditorMode } from './mode'
 import { browserConfigured } from './browser'
 import { cached } from './web-cache'
+import { lintDesign, newFindings } from './design-lint'
+import { addRule } from './rules'
 import { listReferences, readReference, saveReference } from './references'
 import { formatProfile, PROFILE_SOURCE, type RawProfile } from './site-profile'
 import { formatText, TEXT_SOURCE, type RawText } from './site-text'
@@ -27,6 +29,9 @@ import {
   applyProposal,
   checkLayout,
   checkPage,
+  contrastWarnings,
+  parseTokens,
+  readTokens,
   deletePage,
   designFilePath,
   forkLayout,
@@ -164,7 +169,7 @@ export function windowText(text: string, offset: number, limit = DESIGN_READ_LIM
 
 function briefLine(rel: string): string {
   const normalized = rel.replaceAll('\\', '/')
-  if (normalized === 'styles.css' || normalized === 'shell.njk' || normalized === 'labels.yml' || normalized === 'nav.yml') {
+  if (normalized === 'styles.css' || normalized === 'shell.njk' || normalized === 'labels.yml' || normalized === 'nav.yml' || normalized === 'tokens.yml') {
     return 'If the shared look changed, rewrite design/brief.md.'
   }
   return ''
@@ -585,6 +590,23 @@ function layoutReport(root: string, name: string, warnings: string[]): string[] 
   return notes
 }
 
+function tokensOf(root: string) {
+  try {
+    return readTokens(root)
+  } catch {
+    return { colors: {}, fonts: {}, radius: {}, widths: {} }
+  }
+}
+
+/** What a changed file does that the tokens are there to prevent, that the old text did not. Advice only. */
+function designAdvice(root: string, changes: { rel: string; before: string; after: string }[]): string {
+  const tokens = tokensOf(root)
+  const lines = changes.flatMap(({ rel, before, after }) =>
+    newFindings(lintDesign(rel, before, tokens), lintDesign(rel, after, tokens)).map((finding) => `- design/${rel}: ${finding}`),
+  )
+  return lines.length === 0 ? '' : `\nDesign check (advice, nothing was refused):\n${lines.join('\n')}`
+}
+
 type LayoutWrite = { name: string; purpose: string; slots: unknown; template: string; style?: string }
 
 // Check a layout against the guard, write it, and say what else the change affects. A failed build puts the old layout back.
@@ -605,7 +627,11 @@ async function saveLayout(root: string, input: LayoutWrite, verifier: Verifier):
   const { warnings } = writeLayout(designDir, input)
   try {
     const notes = layoutReport(root, input.name, warnings)
-    const summary = `${before ? 'Updated' : 'Wrote'} layout ${input.name}.${notes.length > 0 ? `\n${notes.join('\n')}` : ''}`
+    const advice = designAdvice(root, [
+      { rel: `layouts/${input.name}/template.njk`, before: before?.template ?? '', after: input.template },
+      ...(input.style === undefined ? [] : [{ rel: `layouts/${input.name}/style.css`, before: before?.style ?? '', after: input.style }]),
+    ])
+    const summary = `${before ? 'Updated' : 'Wrote'} layout ${input.name}.${notes.length > 0 ? `\n${notes.join('\n')}` : ''}${advice}`
     return await finishDesign(root, `${summary}\n${briefLine('styles.css')}`.trimEnd(), verifier, input.name)
   } catch (error) {
     restoreLayout(designDir, input.name, before)
@@ -630,11 +656,18 @@ async function saveDesignFile(root: string, rel: string, content: string, verifi
     const checked = checkLayout(readLayout(path.join(root, 'design'), layoutFile[1]), content)
     if (checked.errors.length > 0) fail(`${checked.errors.join('. ')}. Nothing was written.`)
   }
+  let tokenNote = ''
+  if (target === 'tokens.yml') {
+    const tokens = parseTokens(content)
+    const warnings = contrastWarnings(tokens)
+    if (warnings.length > 0) tokenNote = `\nToken check (advice): ${warnings.join(' ')}`
+  }
   const file = designFilePath(root, target)
   const original = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
   fs.writeFileSync(file, content)
   try {
-    return await finishDesign(root, `Updated design/${target}. Every page was regenerated. ${briefLine(target)}`.trim(), verifier, layoutFile?.[1])
+    const advice = designAdvice(root, [{ rel: target, before: original, after: content }])
+    return await finishDesign(root, `Updated design/${target}. Every page was regenerated. ${briefLine(target)}${tokenNote}${advice}`.trim(), verifier, layoutFile?.[1])
   } catch (error) {
     if (original) fs.writeFileSync(file, original)
     else fs.rmSync(file, { force: true })
@@ -660,7 +693,7 @@ export function designTools(root: string, options: ToolOptions = {}): ToolSet {
       description: 'List the design files. Layouts are listed by list_layouts.',
       input: z.object({}),
       execute: () => ({
-        files: ['brief.md', 'styles.css', 'shell.njk', 'nav.yml', 'labels.yml', 'categories.yml', 'fields.yml', 'site.yml'],
+        files: ['brief.md', 'tokens.yml', 'rules.md', 'styles.css', 'shell.njk', 'nav.yml', 'labels.yml', 'categories.yml', 'fields.yml', 'site.yml'],
         layouts: listLayoutNames(path.join(root, 'design')).map((name) => layoutLabel(root, name)),
         references: listReferences(root).map((item) => item.host),
       }),
@@ -716,6 +749,42 @@ export function designTools(root: string, options: ToolOptions = {}): ToolSet {
         return finish(root, `Removed layout ${name}.`)
       },
     }),
+    check_design: defineTool('check_design', {
+      description:
+        'Review the whole design against the tokens and the catalog: files that use a raw color, a font that is not a token, a default palette color, or an inline style; token colors that read badly together; layouts nobody uses; layouts that take exactly the same slots. It is advice: change what is worth changing. Takes no input.',
+      input: z.object({}),
+      execute: () => {
+        const designDir = path.join(root, 'design')
+        const tokens = tokensOf(root)
+        const files = [
+          'shell.njk',
+          'styles.css',
+          ...listLayoutNames(designDir).flatMap((name) => [`layouts/${name}/template.njk`, `layouts/${name}/style.css`]),
+        ]
+        const lines: string[] = contrastWarnings(tokens).map((warning) => `- tokens.yml: ${warning}`)
+        for (const rel of files) {
+          const file = path.join(designDir, rel)
+          if (!fs.existsSync(file)) continue
+          for (const finding of lintDesign(rel, fs.readFileSync(file, 'utf8'), tokens)) lines.push(`- design/${rel}: ${finding}`)
+        }
+        for (const entry of layoutCatalog(designDir, pagesByLayout(root))) {
+          if (entry.kind !== 'page') continue
+          if (entry.pages.length === 0) lines.push(`- layout ${entry.name} is used by no page. Delete it if it is not needed.`)
+          if (entry.similar.length > 0) lines.push(`- layouts ${entry.name} and ${entry.similar.join(', ')} take the same slots. One may be enough.`)
+        }
+        if (Object.keys(tokens.colors).length === 0) lines.push('- design/tokens.yml has no colors, so colors are not checked.')
+        return lines.length === 0 ? 'The design follows the tokens. Nothing to change.' : `${lines.slice(0, 24).join('\n')}${lines.length > 24 ? `\n… and ${lines.length - 24} more.` : ''}`
+      },
+    }),
+    add_rule: defineTool('add_rule', {
+      description:
+        'Keep a lasting preference of the person as a rule for the whole site, one short line, such as “Buttons are always square.” or “No full-bleed photos.” Call it when they say always, never, or I do not like, about how the site should look. The rules are listed in the system prompt, and later chats follow them. A rule that is already there is not added twice.',
+      input: z.object({ rule: z.string().describe('Required. One short line, under 180 characters.') }),
+      execute: ({ rule }) => {
+        const { rules, added } = addRule(root, rule)
+        return added ? `Added a rule. There are ${rules.length}: ${rules.join(' | ')}` : 'That rule is already there.'
+      },
+    }),
     replace_layout: defineTool('replace_layout', {
       description:
         'Remove a layout and point every page that used it at another layout. The pages keep their slot values, so the other layout has to take the same slots; write_page fixes any that do not fit.',
@@ -745,7 +814,7 @@ export function designTools(root: string, options: ToolOptions = {}): ToolSet {
     }),
     write_design: defineTool('write_design', {
       description:
-        'Overwrite a design file with the full new content: brief.md, styles.css, shell.njk, nav.yml, labels.yml, categories.yml, fields.yml, or site.yml. Write a layout with write_layout. For a small change, use edit_design. This restyles every page. The shell and styles must not name one page, hold a picture address, or hold words: interface text goes in labels.yml. A stylesheet that sets opacity 0 on html or body is refused.',
+        'Overwrite a design file with the full new content: brief.md, tokens.yml, rules.md, styles.css, shell.njk, nav.yml, labels.yml, categories.yml, fields.yml, or site.yml. Write a layout with write_layout. For a small change, use edit_design. This restyles every page. The shell and styles must not name one page, hold a picture address, or hold words: interface text goes in labels.yml. A stylesheet that sets opacity 0 on html or body is refused.',
       input: z.object({
         path: z.string().describe('Required. Path relative to design/, such as styles.css.'),
         content: z.string().min(1).describe('Required. The full new content of the file.'),

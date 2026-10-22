@@ -25,6 +25,7 @@ import {
   writePage,
 } from './index'
 import { scopeLayoutCss } from './layouts'
+import { contrastRatio, contrastWarnings, nearestColor, parseTokens, tokenSummary } from './tokens'
 
 test('the picture catalog stays out of the published site', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'schlor-site-'))
@@ -81,7 +82,7 @@ test('generate writes the default language, an optional translation, and ical', 
   assert.match(home, /href="\/en\/"/)
   assert.match(home, /<body[^>]*data-layout="home"/)
   assert.match(fs.readFileSync(path.join(result.outDir, 'en', 'index.html'), 'utf8'), /people who live/)
-  assert.match(fs.readFileSync(path.join(result.outDir, 'assets', 'styles.css'), 'utf8'), /#3f6f64|\.text-teal/)
+  assert.match(fs.readFileSync(path.join(result.outDir, 'assets', 'styles.css'), 'utf8'), /#3f6f64|\.text-heading/)
   const ics = fs.readFileSync(path.join(result.outDir, 'kalender', 'housing.ics'), 'utf8')
   assert.match(ics, /PRODID:-\/\/Housing project\/\/website\/\/DE/)
   assert.equal(fs.existsSync(path.join(result.outDir, 'kalender', 'schlor.ics')), false)
@@ -321,4 +322,48 @@ test('a link or emphasis inside a sentence does not split it', () => {
   generate(root)
   assert.deepEqual(lostContent(root), [])
   assert.equal(slotExpectations(root).find((page) => page.slug === 'k')?.texts[0].expected, 'Schreib an uns: info@example.org.')
+})
+
+test('tokens become the theme, and a bad token says what is wrong', () => {
+  const root = newSite('housing-tokens-')
+  fs.writeFileSync(path.join(root, 'design', 'tokens.yml'), 'colors:\n  primary: "#112233"\n  on-primary: "#ffeedd"\nfonts:\n  serif: \'"Fraunces", serif\'\nradius:\n  card: 12px\nwidths:\n  content: 60rem\n')
+  fs.writeFileSync(
+    path.join(root, 'design', 'layouts', 'article', 'template.njk'),
+    '{% extends "shell.njk" %}{% block body %}<div class="bg-primary text-on-primary rounded-card max-w-content font-serif">{{ slots.body }}</div>{% endblock %}',
+  )
+  const out = generate(root)
+  const css = fs.readFileSync(path.join(out.outDir, 'assets', 'styles.css'), 'utf8')
+  assert.match(css, /--color-primary:\s*#112233/)
+  assert.match(css, /\.bg-primary\s*\{[^}]*background-color:\s*var\(--color-primary\)/)
+  assert.match(css, /\.text-on-primary\s*\{[^}]*color:\s*var\(--color-on-primary\)/)
+  assert.match(css, /\.rounded-card\s*\{[^}]*border-radius:\s*var\(--radius-card\)/)
+  assert.match(css, /\.max-w-content\s*\{[^}]*max-width:\s*var\(--container-content\)/)
+  assert.match(css, /\.font-serif\s*\{[^}]*font-family:\s*var\(--font-serif\)/)
+  assert.deepEqual(parseTokens('colors:\n  page: "#fff"\n').colors, { page: '#fff' })
+  assert.throws(() => parseTokens('colors:\n  Page: "#fff"\n'), /colors\.Page must be lowercase words/)
+  assert.throws(() => parseTokens('colors:\n  page: white\n'), /colors\.page must be a hex color such as #3f6f64, not white/)
+  assert.throws(() => parseTokens('radius:\n  card: round\n'), /radius\.card must be a length/)
+  assert.throws(() => parseTokens('shadows:\n  a: 1\n'), /unknown group shadows/)
+  assert.throws(() => parseTokens('colors: [a'), /not valid YAML/)
+  assert.deepEqual(parseTokens('').colors, {})
+})
+
+test('token colors that cannot be read are named, and the nearest token is found', () => {
+  const tokens = parseTokens('colors:\n  ink: "#1c1917"\n  page: "#ffffff"\n  surface: "#e7e1d5"\n  on-primary: "#ffffff"\n  primary: "#7fb3a6"\n')
+  assert.deepEqual(contrastWarnings(tokens), ['on-primary (#ffffff) on primary (#7fb3a6) has contrast 2.4:1 and needs 4.5:1.'])
+  assert.equal(contrastRatio('#000000', '#ffffff'), 21)
+  assert.deepEqual(nearestColor(tokens, '#E7E1D5'), { name: 'surface', value: '#e7e1d5', exact: true })
+  assert.deepEqual(nearestColor(tokens, '#e8e0d0'), { name: 'surface', value: '#e7e1d5', exact: false })
+  assert.deepEqual(nearestColor(tokens, '#fff'), { name: 'page', value: '#ffffff', exact: true })
+  assert.equal(nearestColor(tokens, 'tomato'), null)
+  assert.match(tokenSummary(tokens), /^Colors: ink #1c1917, page #ffffff/)
+})
+
+test('a setup proposal may carry tokens, and a bad token stops it', () => {
+  const root = newSite('housing-setup-tokens-')
+  const notes = applyProposal(root, { tokens: { colors: { primary: '#112233', 'on-primary': '#ffffff' }, widths: { content: '70rem' } } })
+  assert.match(notes, /tokens/)
+  assert.equal(parseTokens(fs.readFileSync(path.join(root, 'design', 'tokens.yml'), 'utf8')).colors.primary, '#112233')
+  assert.throws(() => applyProposal(root, { tokens: { colors: { primary: 'teal' } } }), /colors\.primary must be a hex color/)
+  assert.equal(parseTokens(fs.readFileSync(path.join(root, 'design', 'tokens.yml'), 'utf8')).colors.primary, '#112233')
 })

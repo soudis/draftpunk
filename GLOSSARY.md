@@ -76,6 +76,14 @@ _Avoid_: field, section, content structure
 A short interface word that belongs to the design, such as a menu entry or "Read more", kept in each language in one file and shown by templates. It is not page content.
 _Avoid_: string, translation, copy
 
+**Design token**:
+A named color, font, corner radius, or content width of the site, kept in one file. Layouts and styles use a token by its name, so changing the token changes every place that uses it.
+_Avoid_: variable, theme value, style guide
+
+**Rule**:
+A lasting preference of the person about how the site looks, kept as one short line and followed in every later chat.
+_Avoid_: setting, instruction, memory
+
 **Reference**:
 A site the person likes, kept with how it looks (colors by role, type, shape, the sections in order) and what they like about it, so later chats can match it. It describes a look and holds no content of the site.
 _Avoid_: inspiration, template, import
@@ -85,7 +93,7 @@ What the agent sees of the site's layouts: each one's name, purpose, slot signat
 _Avoid_: registry, library
 
 **Design**:
-The shell, stylesheet, layouts, labels, navigation, design brief, and fields of one site instance. The shell and navigation hold no page content and do not name one page.
+The shell, stylesheet, design tokens, layouts, labels, navigation, rules, design brief, and fields of one site instance. The shell and navigation hold no page content and do not name one page.
 _Avoid_: theme, skin, data model
 
 **Design brief**:
