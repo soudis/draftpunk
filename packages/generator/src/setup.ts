@@ -1,8 +1,9 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { writeYaml, type EventDoc, type PlaceDoc } from './content'
 import { pageLayoutsOrThrow, replaceLayout } from './generate'
-import { GENERATED_LAYOUTS, labelReferences, layoutExists, listLayoutNames, removeLayoutFolder, writeLayout } from './layouts'
+import { GENERATED_LAYOUTS, labelReferences, layoutExists, listLayoutNames, pageLayouts, removeLayoutFolder, writeLayout } from './layouts'
 import { checkPage, listPageSlugs, readPage, writePage } from './pages'
 import { parse, stringify } from 'yaml'
 import { parseTokens } from './tokens'
@@ -34,17 +35,76 @@ export type SetupProposal = {
   places?: PlaceDoc[]
 }
 
-export function recordProposal(root: string, proposal: SetupProposal): void {
+/** Record a part of the proposal, and return what is wrong with everything recorded so far. */
+export function recordProposal(root: string, proposal: SetupProposal): string[] {
   proposal = normalizeProposal(proposal)
   const current = readYamlFile<SetupProposal>(path.join(root, 'design', 'proposal.yml'), {})
   writeYamlFile(path.join(root, 'design', 'proposal.yml'), { ...current, ...proposal })
+  return proposalProblems(root, readProposal(root))
 }
 
 export function readProposal(root: string): SetupProposal {
   return readYamlFile<SetupProposal>(path.join(root, 'design', 'proposal.yml'), {})
 }
 
+const GENERATED_NOTE = 'event, calendar, archive and notfound are made by the site and no page uses them: the menu links to /kalender/ for the calendar and /blog/ for the news list'
+
+function structuralProblems(root: string, proposal: SetupProposal): string[] {
+  const problems: string[] = []
+  const generated = GENERATED_LAYOUTS as readonly string[]
+  const usable = new Set(pageLayouts(path.join(root, 'design')))
+  for (const layout of proposal.layouts ?? []) if (!generated.includes(layout.name)) usable.add(layout.name)
+  for (const name of proposal.dropLayouts ?? []) {
+    if (generated.includes(name)) problems.push(`Layout ${name} is part of the calendar and archive and cannot be dropped.`)
+    else usable.delete(name)
+  }
+  const choices = [...usable].sort().join(', ')
+  for (const page of proposal.pages ?? []) {
+    if (usable.has(page.layout)) continue
+    problems.push(
+      generated.includes(page.layout)
+        ? `Page ${page.slug} uses the layout ${page.layout}, but ${GENERATED_NOTE}. Use one of: ${choices}.`
+        : `Page ${page.slug} uses the layout ${page.layout}, which does not exist. Use one of: ${choices}, or define it in layouts.`,
+    )
+  }
+  return problems
+}
+
+/**
+ * Everything that would stop this proposal from being accepted, found without writing to the site: the plain
+ * mistakes are all listed; when there are none, the proposal is applied to a copy, and the first thing that fails
+ * there is reported.
+ */
+export function proposalProblems(root: string, input: SetupProposal): string[] {
+  let proposal: SetupProposal
+  try {
+    proposal = normalizeProposal(input)
+  } catch (error) {
+    return [error instanceof Error ? error.message : 'The proposal could not be read.']
+  }
+  const plain = structuralProblems(root, proposal)
+  if (plain.length > 0) return plain
+  const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'schlor-proposal-'))
+  try {
+    for (const folder of ['design', 'content']) if (fs.existsSync(path.join(root, folder))) fs.cpSync(path.join(root, folder), path.join(copy, folder), { recursive: true })
+    if (fs.existsSync(path.join(root, 'media'))) fs.symlinkSync(path.join(root, 'media'), path.join(copy, 'media'))
+    applyUnchecked(copy, proposal, false)
+    return []
+  } catch (error) {
+    return [error instanceof Error ? error.message : 'The proposal could not be applied.']
+  } finally {
+    fs.rmSync(copy, { recursive: true, force: true })
+  }
+}
+
+/** Write an accepted proposal onto the site. Nothing is written unless all of it can be: the list says what to fix. */
 export function applyProposal(root: string, input: SetupProposal, finish = false): string {
+  const problems = proposalProblems(root, input)
+  if (problems.length > 0) throw new Error(problems.length === 1 ? problems[0] : `${problems.length} things stop this proposal:\n- ${problems.join('\n- ')}`)
+  return applyUnchecked(root, input, finish)
+}
+
+function applyUnchecked(root: string, input: SetupProposal, finish: boolean): string {
   const proposal = normalizeProposal(input)
   if (proposal.site?.timezone?.trim()) {
     try {

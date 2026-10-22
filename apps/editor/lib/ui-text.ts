@@ -96,6 +96,11 @@ const TEXTS = {
   'chat.deleteYes': { de: 'Löschen', en: 'Delete' },
   'chat.keep': { de: 'Behalten', en: 'Keep' },
   'chat.setup': { de: 'Einrichtung', en: 'Setup' },
+  'chat.finishSetup': { de: 'Einrichtung abschließen', en: 'Finish setup' },
+  'chat.finishSetupAsk': {
+    de: 'Die Einrichtung beenden? Was bis jetzt auf der Website steht, bleibt. Ein noch nicht angenommener Vorschlag wird nicht mehr angewendet.',
+    en: 'End the setup? What is on the website now stays. A proposal that was not accepted is no longer applied.',
+  },
   'chat.stepOne': { de: '1 Schritt', en: '1 step' },
   'chat.steps': { de: '{count} Schritte', en: '{count} steps' },
   'chat.savedOne': { de: '1 Änderung gespeichert', en: '1 change saved' },

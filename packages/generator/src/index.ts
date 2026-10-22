@@ -42,7 +42,7 @@ export {
   writeLayout,
 } from './layouts'
 export { bilingualGaps, checkPage, deletePage, listPageSlugs, pageFilePath, pageHasLanguage, pagesByLayout, readPage, writePage } from './pages'
-export { applyProposal, normalizeProposal, readProposal, recordProposal } from './setup'
+export { applyProposal, normalizeProposal, proposalProblems, readProposal, recordProposal } from './setup'
 export { labelNames, parseLabels, readLabels, readSiteConfig, setupAccepted, readEventFields } from './model'
 export { fontFaceCss, fontPreloadLinks, parseFonts, readFonts, writeFonts } from './fonts'
 export type { FontFace } from './fonts'

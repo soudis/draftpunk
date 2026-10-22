@@ -44,6 +44,46 @@ function forwardedHeaders(headers: Record<string, string>): Record<string, strin
  * Open a public page in the browser. The browser never touches the network: every request it makes goes
  * through `fetchPage`, which only reaches public addresses, with a limit on how many and how much.
  */
+const REDIRECTS = [301, 302, 303, 307, 308]
+
+/**
+ * A browser follows a redirect itself, and does not ask the route again, so it would reach any address a page
+ * sends it to, a private one too. So no redirect reaches the browser: they are followed here, one hop at a
+ * time, and every hop goes through the same fetch as the first request.
+ */
+async function fetchFollowing(fetchPage: FetchPage, url: string, init: Parameters<FetchPage>[1], hops = 5): Promise<Response> {
+  let current = url
+  for (let hop = 0; ; hop += 1) {
+    const response = await fetchPage(current, init)
+    const location = response.headers.get('location')
+    if (!REDIRECTS.includes(response.status) || !location) return response
+    if (hop >= hops) throw new Error('too many redirects')
+    current = new URL(location, current).href
+  }
+}
+
+/** Where an address ends up, or the hop that cannot be read. Only the first bytes of each answer are read. */
+export async function resolveAddress(fetchPage: FetchPage, url: string, hops = 5): Promise<{ url: string } | { failedAt: string; reason: string }> {
+  let current = url
+  for (let hop = 0; hop <= hops; hop += 1) {
+    let response: Response
+    try {
+      response = await fetchPage(current, { maxBytes: 1 })
+    } catch (error) {
+      // The first address failing is for the browser to report; a later one is another site's failure.
+      return hop === 0 ? { url } : { failedAt: current, reason: error instanceof Error ? error.message : 'it did not answer' }
+    }
+    const location = response.headers.get('location')
+    if (!REDIRECTS.includes(response.status) || !location) return { url: current }
+    try {
+      current = new URL(location, current).href
+    } catch {
+      return { url: current }
+    }
+  }
+  return { failedAt: current, reason: 'too many redirects' }
+}
+
 export async function withSitePage<T>(
   input: string,
   options: { viewport?: SiteViewport; fetchPage?: FetchPage },
@@ -69,7 +109,7 @@ export async function withSitePage<T>(
       if (requests >= MAX_REQUESTS || bytes >= MAX_BYTES) return route.abort()
       requests += 1
       try {
-        const response = await fetchPage(request.url(), { headers: forwardedHeaders(await request.allHeaders()), maxBytes: 8_000_000 })
+        const response = await fetchFollowing(fetchPage, request.url(), { headers: forwardedHeaders(await request.allHeaders()), maxBytes: 8_000_000 })
         const body = Buffer.from(await response.arrayBuffer())
         bytes += body.length
         const headers: Record<string, string> = {}
@@ -82,7 +122,11 @@ export async function withSitePage<T>(
       }
     })
     const page = await context.newPage()
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20_000 }).catch((error: Error) => {
+    const target = await resolveAddress(fetchPage, url)
+    if ('failedAt' in target) {
+      throw new Error(`Could not read ${input}: it redirects to ${target.failedAt}, which could not be read: ${target.reason.replace(/\.$/, '')}. That is another site; this page itself is there.`)
+    }
+    await page.goto(target.url, { waitUntil: 'domcontentloaded', timeout: 20_000 }).catch((error: Error) => {
       const reason = /ERR_NAME_NOT_RESOLVED/.test(error.message)
         ? 'the address does not exist'
         : /Timeout/i.test(error.message)

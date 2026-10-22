@@ -43,7 +43,7 @@ test('a proposal with no recording, or one that cannot be accepted, or one with 
   const broken = newSite()
   writeYaml(path.join(broken, 'design', 'proposal.yml'), { pages: [{ slug: 'x', layout: 'nope', title: { de: 'X' }, slots: {} }] })
   const failed = proposalAccepts(broken).find((check) => !check.ok && check.name === 'the proposal can be accepted')
-  assert.match(failed?.detail ?? '', /Unknown layout nope/)
+  assert.match(failed?.detail ?? '', /layout nope, which does not exist/)
 
   const unlabeled = newSite()
   recordProposal(unlabeled, { ...GOOD, labels: undefined })

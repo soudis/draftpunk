@@ -60,7 +60,7 @@ const SETUP_RULES = `You are in setup: the first conversation that decides a new
 - A directive that already names a decision is acceptance for that decision: call accept_setup with that part and leave finish false. When the person accepts the whole proposal, call accept_setup with useRecorded and finish.
 - Name the project in site.name, in its own words from the site, and take its fonts for tokens.fonts as well as its colors for tokens.colors; load a font in the shell when it needs a link. Do not keep the starter name or the starter fonts when the site has its own.
 - When the site uses a font that the starter does not have, call add_font for it, with as set, before you propose tokens that use it.
-- Keep the event, place, calendar, archive, and not-found layouts.
+- Keep the event, place, calendar, archive, and not-found layouts. They are made by the site, and no page uses them: the calendar is at /kalender/ and the news list at /blog/, so the menu links there. A page whose layout is not in the catalog is refused, and propose_setup tells you when a recorded page would be.
 - The first language has no address prefix. A language marked optional does not block publish.`
 
 const SITE_RULES = `## Other sites

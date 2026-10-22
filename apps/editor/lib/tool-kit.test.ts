@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import test from 'node:test'
+import { initSite } from '@schlor/generator'
 import { z } from 'zod'
-import { INVALID_JSON, repairToolInput } from './agent'
+import { agentRun, INVALID_JSON, repairToolInput } from './agent'
 import { coerceInput, defineTool, inputJsonSchema, ToolError } from './tool-kit'
 
 const call = { toolCallId: 'x', messages: [] as never[] }
@@ -76,4 +80,22 @@ test('arguments with a raw new line in a text or a trailing comma are repaired w
       return true
     },
   )
+})
+
+test('a call that cannot be repaired is reported with what the model wrote', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'schlor-badcall-'))
+  initSite(root)
+  const seen: { toolName: string; reason: string; raw: string }[] = []
+  const run = agentRun('edit', root, { onBadCall: (call) => seen.push(call) })
+  const base = { type: 'tool-call' as const, toolCallId: 'c', toolName: 'write_page', providerExecuted: false }
+  const cut = await run.experimental_repairToolCall({ toolCall: { ...base, input: '{"slug":"a","title":{"de":"Kopf' }, error: new Error('bad') })
+  assert.deepEqual(JSON.parse(cut!.input), { __invalid_json: true })
+  const fine = await run.experimental_repairToolCall({ toolCall: { ...base, input: '```json\n{"slug":"a"}\n```' }, error: new Error('bad') })
+  assert.deepEqual(JSON.parse(fine!.input), { slug: 'a' })
+  const unknown = await run.experimental_repairToolCall({ toolCall: { ...base, toolName: 'nope', input: '{}' }, error: Object.assign(new Error('no'), { name: 'AI_NoSuchToolError' }) })
+  assert.equal(unknown, null)
+  assert.deepEqual(seen, [
+    { toolName: 'write_page', reason: 'arguments could not be read', raw: '{"slug":"a","title":{"de":"Kopf' },
+    { toolName: 'nope', reason: 'no such tool', raw: '{}' },
+  ])
 })

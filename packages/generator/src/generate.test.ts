@@ -4,6 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import {
+  proposalProblems,
+  recordProposal,
   applyProposal,
   bilingualGaps,
   checkLayout,
@@ -495,4 +497,39 @@ test('the published address comes from the deployment, and site.yml may override
     if (before === undefined) delete process.env.SITE_URL
     else process.env.SITE_URL = before
   }
+})
+
+test('a proposal whose pages use generated layouts is refused whole, with every problem listed, and writes nothing', () => {
+  const root = newSite('housing-proposal-')
+  const before = fs.readFileSync(path.join(root, 'design', 'tokens.yml'), 'utf8')
+  const bad = {
+    tokens: { colors: { primary: '#112233', 'on-primary': '#ffffff' } },
+    pages: [
+      { slug: 'aktuelles', layout: 'archive', title: { de: 'Aktuelles' }, slots: {} },
+      { slug: 'termine', layout: 'calendar', title: { de: 'Termine' }, slots: {} },
+      { slug: 'ueber-uns', layout: 'article', title: { de: 'Über uns' }, slots: { body: { de: 'Text' } } },
+    ],
+  }
+  const problems = recordProposal(root, bad)
+  assert.equal(problems.length, 2)
+  assert.match(problems[0], /Page aktuelles uses the layout archive/)
+  assert.match(problems[0], /\/kalender\/.*\/blog\//)
+  assert.match(problems[1], /Page termine uses the layout calendar/)
+  assert.match(problems[1], /Use one of: .*article/)
+  assert.throws(() => applyProposal(root, bad), /2 things stop this proposal[\s\S]*aktuelles[\s\S]*termine/)
+  assert.equal(fs.readFileSync(path.join(root, 'design', 'tokens.yml'), 'utf8'), before)
+  assert.equal(fs.existsSync(path.join(root, 'content', 'pages', 'ueber-uns.yml')), false)
+})
+
+test('a proposal that only fails when it is applied is refused before anything is written', () => {
+  const root = newSite('housing-proposal-')
+  const before = fs.readFileSync(path.join(root, 'design', 'tokens.yml'), 'utf8')
+  const bad = {
+    tokens: { colors: { primary: '#112233', 'on-primary': '#ffffff' } },
+    pages: [{ slug: 'ueber-uns', layout: 'article', title: { de: 'Über uns' }, slots: { body: { not: 'text' } } }],
+  }
+  assert.equal(proposalProblems(root, bad).length, 1)
+  assert.throws(() => applyProposal(root, bad), /slots\.body/)
+  assert.equal(fs.readFileSync(path.join(root, 'design', 'tokens.yml'), 'utf8'), before)
+  assert.deepEqual(recordProposal(root, { pages: [{ slug: 'ueber-uns', layout: 'article', title: { de: 'Über uns' }, slots: { body: { de: 'Text' } } }] }), [])
 })

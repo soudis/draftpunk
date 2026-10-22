@@ -1,4 +1,5 @@
 import { savedChange, toolPartName } from './activity'
+import { stripLeakedCalls } from './leaked-calls'
 
 export type ChatPiece =
   | { kind: 'text'; text: string }
@@ -31,9 +32,12 @@ export function chatPieces(parts: Part[]): ChatPiece[] {
   }
   for (const part of parts) {
     if (part.type === 'text' && part.text?.trim()) {
+      // A tool call the model wrote as text (an older chat may hold one) is not shown.
+      const shown = stripLeakedCalls(part.text)
+      if (!shown.trim()) continue
       flushTools()
       flushSaves()
-      pieces.push({ kind: 'text', text: part.text })
+      pieces.push({ kind: 'text', text: shown })
       continue
     }
     const name = toolPartName(part)

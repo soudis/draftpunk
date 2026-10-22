@@ -30,7 +30,14 @@ async function connect(): Promise<Browser> {
     executablePath,
     headless: true,
     timeout: 15_000,
-    args: process.env.BROWSER_NO_SANDBOX === '1' ? ['--no-sandbox'] : [],
+    args: [
+      ...(process.env.BROWSER_NO_SANDBOX === '1' ? ['--no-sandbox'] : []),
+      // Every request the pages make is answered by the editor, through the checked fetch. A dead proxy for
+      // everything, loopback included, means a request that is not answered that way reaches nothing.
+      '--proxy-server=http://127.0.0.1:9',
+      '--proxy-bypass-list=<-loopback>',
+      '--host-resolver-rules=MAP * ~NOTFOUND',
+    ],
   })
 }
 

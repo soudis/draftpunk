@@ -1070,8 +1070,9 @@ export function setupTools(root: string): ToolSet {
       description: 'Record a setup proposal, or part of one, without writing it onto the site. Each call adds the parts it carries to what is recorded, and a part sent again replaces the earlier one, so a long proposal goes in several calls. The person accepts it before it is applied.',
       input: z.object({ proposal: z.record(z.string(), z.unknown()).describe('Required. The proposal.') }),
       execute: ({ proposal }) => {
-        recordProposal(root, proposal as SetupProposal)
-        return 'Recorded the proposal. It is not on the site until it is accepted.'
+        const problems = recordProposal(root, proposal as SetupProposal)
+        if (problems.length === 0) return 'Recorded the proposal. It is not on the site until it is accepted.'
+        return `Recorded the proposal, but it cannot be accepted as it is. Fix this with the next propose_setup call:\n- ${problems.join('\n- ')}`
       },
     }),
     accept_setup: defineTool('accept_setup', {

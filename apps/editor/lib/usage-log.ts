@@ -29,6 +29,17 @@ export function migrateUsage(database: Database.Database): void {
       tools TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS step_log_session ON step_log (session_id, turn, step);
+    CREATE TABLE IF NOT EXISTS bad_calls (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      at INTEGER NOT NULL,
+      session_id TEXT NOT NULL,
+      turn INTEGER NOT NULL,
+      tool_name TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      raw_length INTEGER NOT NULL,
+      raw_head TEXT NOT NULL,
+      raw_tail TEXT NOT NULL
+    );
   `)
   try {
     database.exec("ALTER TABLE step_log ADD COLUMN task TEXT NOT NULL DEFAULT ''")
@@ -183,4 +194,16 @@ export function formatReport(report: UsageReport): string {
     for (const failure of report.failures.slice(0, 10)) lines.push(`${String(failure.count).padStart(4)}× ${failure.name}: ${failure.error}`)
   }
   return lines.join('\n')
+}
+
+export type BadCall = { sessionId: string; turn: number; toolName: string; reason: string; raw: string }
+
+/**
+ * A tool call whose arguments could not be read is replaced by a marker, so the cause would be lost. The start
+ * and the end of what the model wrote are kept: the end shows whether it was cut off.
+ */
+export function recordBadCall(database: Database.Database, call: BadCall, at = Date.now()): void {
+  database
+    .prepare('INSERT INTO bad_calls (at, session_id, turn, tool_name, reason, raw_length, raw_head, raw_tail) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(at, call.sessionId, call.turn, call.toolName, call.reason, call.raw.length, call.raw.slice(0, 3_000), call.raw.length > 3_000 ? call.raw.slice(-1_000) : '')
 }

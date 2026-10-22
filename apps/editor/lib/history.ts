@@ -1,4 +1,5 @@
 import type { ModelMessage } from 'ai'
+import { stripLeakedCalls } from './leaked-calls'
 
 // Tools whose result is only needed while the agent decides what to write. After the turn
 // that read it, a stub is enough: the agent can read the file again.
@@ -99,7 +100,16 @@ export function pruneHistory(messages: ModelMessage[], budgetChars = DEFAULT_BUD
     }
     return message
   })
-  return fitBudget(pruned, turnStart, budgetChars, options.keepReasoning === true)
+  return repairHistory(fitBudget(pruned.map(withoutLeakedCalls), turnStart, budgetChars, options.keepReasoning === true))
+}
+
+// A tool call that the model wrote as text, and that never ran, is not sent back.
+function withoutLeakedCalls(message: ModelMessage): ModelMessage {
+  if (message.role !== 'assistant' || !Array.isArray(message.content)) return message
+  return withParts(
+    message,
+    parts(message).map((part) => (part.type === 'text' ? { ...part, text: stripLeakedCalls(String(part.text ?? '')) } : part)),
+  )
 }
 
 function size(messages: ModelMessage[]): number {
@@ -107,6 +117,7 @@ function size(messages: ModelMessage[]): number {
 }
 
 // When even the pruned history is too long, drop the tool traffic of the oldest turns and keep what was said.
+// An assistant message and the tool messages that answer it go together, so a call is never left without its result.
 function fitBudget(messages: ModelMessage[], turnStart: number, budgetChars: number, keepReasoning: boolean): ModelMessage[] {
   if (size(messages) <= budgetChars) return messages
   const kept = [...messages]
@@ -119,15 +130,62 @@ function fitBudget(messages: ModelMessage[], turnStart: number, budgetChars: num
       continue
     }
     if (message.role === 'assistant') {
+      let end = index + 1
+      while (end < turnStart && kept[end].role === 'tool') end += 1
       const text = parts(message).filter((part) => part.type === 'text' || (keepReasoning && part.type === 'reasoning'))
-      if (text.every((part) => part.type !== 'text')) {
-        kept.splice(index, 1)
-        turnStart -= 1
-        continue
-      }
-      kept[index] = withParts(message, text)
+      const replacement = text.some((part) => part.type === 'text') ? [withParts(message, text)] : []
+      kept.splice(index, end - index, ...replacement)
+      turnStart -= end - index - replacement.length
+      index += replacement.length
+      continue
     }
     index += 1
   }
   return kept
+}
+
+function hasWords(message: ModelMessage): boolean {
+  if (typeof message.content === 'string') return message.content.trim().length > 0
+  return parts(message).some((part) => (part.type === 'text' && String(part.text ?? '').trim().length > 0) || part.type === 'tool-call' || part.type === 'file' || part.type === 'image')
+}
+
+/**
+ * The last check before a request: every tool result follows the assistant message that made the call, every
+ * call has its result, and no assistant message is empty. A provider answers 400 to anything else, and the same
+ * history would fail on every retry, so a chat could never go on.
+ */
+export function repairHistory(messages: ModelMessage[]): ModelMessage[] {
+  const repaired: ModelMessage[] = []
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index]
+    if (message.role === 'tool') continue
+    if (message.role !== 'assistant') {
+      repaired.push(message)
+      continue
+    }
+    let end = index + 1
+    const answers: ModelMessage[] = []
+    while (end < messages.length && messages[end].role === 'tool') {
+      answers.push(messages[end])
+      end += 1
+    }
+    const answered = new Set(answers.flatMap((answer) => parts(answer)).filter((part) => part.type === 'tool-result').map((part) => String(part.toolCallId)))
+    const content = Array.isArray(message.content) ? parts(message).filter((part) => part.type !== 'tool-call' || answered.has(String(part.toolCallId))) : null
+    const assistant = content ? withParts(message, content) : message
+    if (hasWords(assistant)) {
+      repaired.push(assistant)
+      const called = new Set(parts(assistant).filter((part) => part.type === 'tool-call').map((part) => String(part.toolCallId)))
+      const results = answers.flatMap((answer) => parts(answer)).filter((part) => part.type === 'tool-result' && called.has(String(part.toolCallId)))
+      if (results.length > 0) repaired.push({ role: 'tool', content: results } as unknown as ModelMessage)
+    }
+    index = end - 1
+  }
+  return repaired
+}
+
+/** A reply that holds nothing (a request that failed leaves one) must not be stored or sent again. */
+export function withoutEmptyReplies<T extends { role: string; parts: { type: string; text?: string }[] }>(messages: T[]): T[] {
+  return messages.filter(
+    (message) => message.role !== 'assistant' || message.parts.some((part) => (part.type === 'text' && (part.text ?? '').trim().length > 0) || part.type.startsWith('tool-') || part.type === 'dynamic-tool' || part.type === 'file'),
+  )
 }

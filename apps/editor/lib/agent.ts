@@ -110,7 +110,13 @@ export type AgentRun = {
 }
 
 /** The settings the chat route and the eval runner both give to streamText. */
-export function agentRun(mode: EditorMode, root: string, options: { vision?: boolean; cacheDir?: string; keepReasoning?: boolean; maxOutputTokens?: number } = {}): AgentRun {
+export type BadCallInfo = { toolName: string; reason: string; raw: string }
+
+export function agentRun(
+  mode: EditorMode,
+  root: string,
+  options: { vision?: boolean; cacheDir?: string; keepReasoning?: boolean; maxOutputTokens?: number; onBadCall?: (call: BadCallInfo) => void } = {},
+): AgentRun {
   const screenshots = new ScreenshotStore()
   return {
     system: systemPrompt(mode, root, new Date(), { browser: browserConfigured(), vision: options.vision }),
@@ -123,8 +129,15 @@ export function agentRun(mode: EditorMode, root: string, options: { vision?: boo
     }),
     experimental_repairToolCall: async ({ toolCall, error }) => {
       const name = (error as { name?: string } | undefined)?.name
-      if (name === 'AI_NoSuchToolError') return null
-      return repairToolInput(toolCall)
+      if (name === 'AI_NoSuchToolError') {
+        options.onBadCall?.({ toolName: toolCall.toolName, reason: 'no such tool', raw: toolCall.input })
+        return null
+      }
+      const repaired = repairToolInput(toolCall)
+      if (repaired && INVALID_JSON in (JSON.parse(repaired.input) as Record<string, unknown>)) {
+        options.onBadCall?.({ toolName: toolCall.toolName, reason: 'arguments could not be read', raw: toolCall.input })
+      }
+      return repaired
     },
   }
 }

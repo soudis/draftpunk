@@ -9,11 +9,12 @@ import { needsReasoningPassBack, outputLimit } from '@/lib/thinking'
 import { sessionFromRequest } from '@/lib/session'
 import { chatDatabasePath, siteRoot } from '@/lib/site'
 import { agentRun } from '@/lib/agent'
+import { withoutEmptyReplies } from '@/lib/history'
 import { parseMode } from '@/lib/mode'
 import { nameFromFirstInput } from '@/lib/chat-name'
 import { currentModelSettings } from '@/lib/model-settings'
 import { chatFor, chatsFor, editorDatabase, rememberReply, storeChat } from '@/lib/sessions'
-import { recordStep, stepTools } from '@/lib/usage-log'
+import { recordBadCall, recordStep, stepTools } from '@/lib/usage-log'
 
 export const runtime = 'nodejs'
 
@@ -30,7 +31,9 @@ export async function POST(request: Request) {
   if (!modelSettings.apiKey) {
     return new Response('LLM_API_KEY is not set', { status: 400 })
   }
-  const body = (await request.json()) as { messages: UIMessage[]; mode?: string; sessionId?: string }
+  const posted = (await request.json()) as { messages: UIMessage[]; mode?: string; sessionId?: string }
+  // A request that failed leaves an empty reply in the chat; it is neither sent again nor stored.
+  const body = { ...posted, messages: withoutEmptyReplies(posted.messages) }
   const mode = parseMode(body.mode)
   if (!body.sessionId || !chatFor(session.sub, body.sessionId)) {
     return Response.json({ error: 'Chat not found' }, { status: 404 })
@@ -54,6 +57,13 @@ export async function POST(request: Request) {
       cacheDir: path.join(path.dirname(chatDatabasePath()), 'web-cache'),
       keepReasoning: needsReasoningPassBack(modelSettings.baseURL) && plan.thinking === 'default',
       maxOutputTokens: outputLimit(modelSettings.baseURL),
+      onBadCall: (call) => {
+        try {
+          recordBadCall(editorDatabase(), { sessionId, turn: userCount, ...call })
+        } catch (error) {
+          console.error('Could not record the broken call', error)
+        }
+      },
     }),
     messages: await convertToModelMessages(body.messages),
     abortSignal: request.signal,

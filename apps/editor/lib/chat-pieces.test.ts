@@ -19,3 +19,11 @@ test('repeated tool uses and file updates collapse into groups', () => {
     { kind: 'text', text: 'The header is now white.' },
   ])
 })
+
+test('a tool call that the model wrote as text is not shown', () => {
+  const pieces = chatPieces([
+    { type: 'text', text: 'Ich prüfe die Seite. <｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="preview_page">' },
+    { type: 'text', text: '<｜｜DSML｜｜ calls>' },
+  ])
+  assert.deepEqual(pieces, [{ kind: 'text', text: 'Ich prüfe die Seite.' }])
+})

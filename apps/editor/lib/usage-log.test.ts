@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import Database from 'better-sqlite3'
-import { formatReport, migrateUsage, recordStep, stepTools, usageReport } from './usage-log'
+import { formatReport, migrateUsage, recordBadCall, recordStep, stepTools, usageReport } from './usage-log'
 
 function open() {
   const database = new Database(':memory:')
@@ -51,4 +51,16 @@ test('a step keeps the full text of a tool failure, up to a limit', () => {
   ])
   assert.deepEqual(tools[0], { name: 'read_page' })
   assert.equal(tools[1].error?.length, 2000)
+})
+
+test('a broken tool call keeps the start and the end of what the model wrote', () => {
+  const database = open()
+  recordBadCall(database, { sessionId: 's', turn: 2, toolName: 'write_page', reason: 'arguments could not be read', raw: '{"slug":"a","title":' })
+  recordBadCall(database, { sessionId: 's', turn: 2, toolName: 'write_page', reason: 'arguments could not be read', raw: `{"slug":"b",${'x'.repeat(6000)}CUT` })
+  const rows = database.prepare('select tool_name, raw_length, raw_head, raw_tail from bad_calls order by id').all() as { tool_name: string; raw_length: number; raw_head: string; raw_tail: string }[]
+  assert.equal(rows.length, 2)
+  assert.deepEqual(rows[0], { tool_name: 'write_page', raw_length: 20, raw_head: '{"slug":"a","title":', raw_tail: '' })
+  assert.equal(rows[1].raw_length, 6000 + 'CUT'.length + '{"slug":"b",'.length)
+  assert.equal(rows[1].raw_head.length, 3000)
+  assert.ok(rows[1].raw_tail.endsWith('CUT'))
 })

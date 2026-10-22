@@ -491,6 +491,18 @@ export function ChatPanel({
                     {t('chat.setup')}
                   </button>
                 )}
+                {setupActive && current.mode === 'setup' && (
+                  <button
+                    type="button"
+                    className="quiet-button"
+                    disabled={streamBusy}
+                    onClick={() => {
+                      if (window.confirm(t('chat.finishSetupAsk'))) void skipSetup()
+                    }}
+                  >
+                    {t('chat.finishSetup')}
+                  </button>
+                )}
                 <button type="button" className="quiet-button" disabled={streamBusy} onClick={() => void createSession()}>
                   + {t('chat.new')}
                 </button>

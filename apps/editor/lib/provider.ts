@@ -1,4 +1,6 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
+import { wrapLanguageModel } from 'ai'
+import { leakedCallMiddleware } from './leaked-calls'
 import { attachThoughtSignatures, tapThoughtSignatures } from './gemini'
 import { shapeRequestBody } from './thinking'
 import type { RequestPlan } from './routing'
@@ -14,5 +16,5 @@ export function modelFor(settings: { baseURL: string; apiKey: string }, plan: Re
     transformRequestBody: (body) =>
       attachThoughtSignatures(shapeRequestBody(body as never, { baseURL: settings.baseURL, model: plan.model, thinking: plan.thinking }), thoughtSignatures),
   })
-  return provider.chatModel(plan.model)
+  return wrapLanguageModel({ model: provider.chatModel(plan.model), middleware: leakedCallMiddleware() })
 }
