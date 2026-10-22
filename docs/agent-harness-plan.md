@@ -71,7 +71,7 @@ Phase 3 is built:
 
 Phase 4 is built (looking at the result):
 - A browser is optional. `BROWSER_URL` points at a Chromium that speaks the DevTools protocol (tested over a local debugging port), or `BROWSER_PATH` runs a local Chrome. Without either, the tools below do not exist and nothing changes. A Chromium container as a sidecar is the intended setup; Chrome only accepts DevTools connections for `localhost` or an IP address as the host name, so use the container's address (not tested against a real container).
-- Pages are served to the browser from the generated draft, and nothing else leaves the machine except Google Fonts.
+- Pages are served to the browser from the generated draft, and nothing else leaves the machine.
 - `check_page` lists what is wrong at phone width (375px) and desktop width (1280px): text with too little contrast (computed from the real colours behind it), a page that scrolls sideways and what reaches out, pictures that did not load, slot words that are in the page but not visible (hidden by CSS), an invisible page, a missing h1, script errors.
 - After every design write (`write_layout`, `write_design`, `edit_layout`, `edit_design`, `replace_layout`) the tool result also carries what the browser found on the pages that show the change (the pages of that layout, or the home page and one page per layout for a shared change). A problem is reported once per request. A browser that fails never fails the change.
 - `preview_page` gives a vision model a screenshot (JPEG, whole page to 2400px). It reaches the model as a user message for the next step only, then is gone, so it never stays in the history or the stored chat. Whether a model reads pictures comes from a list of documented models, or `LLM_VISION=1` or `0`.
@@ -317,3 +317,7 @@ Decided in a grilling session; ADRs 0015 and 0016 and the glossary terms Tips an
 - Below 800 px the window has two tabs, Chat and Preview, at the bottom. The top bar shrinks to the page switcher, Publish with its count, the menu and the account. Picking a page opens the Preview tab; a change that a reply saves puts a dot on the Preview tab until it is opened. The preview toolbar keeps Edit Mode and Reload and drops the Computer / Phone toggle, since the window already is a phone.
 - Tried in the browser at desktop width (light and dark) and at 375 px.
 - Stage D is now complete. Not done: trying the whole editor with a real model, and the two-column layout between 800 and about 1000 px, which is tight but works.
+
+### The browser is in the image
+
+- The Docker image installs Chromium and sets `BROWSER_PATH=/usr/bin/chromium` and `BROWSER_NO_SANDBOX=1` (the container runs as root, where Chromium needs that). A deployment needs no extra container. Setting `BROWSER_URL` takes priority, so a shared Chromium container can replace it later when there are several instances (each render uses its own browser context, and every request goes through the instance, so one Chromium can serve many).
