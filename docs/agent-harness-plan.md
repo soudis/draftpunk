@@ -292,3 +292,12 @@ Decided in a grilling session; ADRs 0015 and 0016 and the glossary terms Tips an
 - A "?" button in the top bar opens the same tips in a window at any time. The card goes away once the chat has a message.
 - The texts are in `lib/ui-text.ts` in German and English; a test checks that both languages have every key and that each tip stays short.
 - Tried in the browser: the card, the example chips, the "?" window, the language switch to English.
+
+### Stage D, step 1 is built (top bar and composer)
+
+- One bar across the whole window: site name, a page switcher (it follows the preview when a link is clicked, and keeps the language shown), a Computer / Phone toggle for the preview, then the number of unpublished changes, one strong Publish button with that number, a "⋯" menu (Tips, Settings, Revert draft) and the account menu. `GET /api/pages` lists the pages with their address in each language; the change count comes from `GET /api/publish`.
+- Edit Mode moved out of the site into a toolbar above the preview, with a hint line while it is on and a Reload button. The phone preview is a 390 px frame.
+- The composer is one card: the field grows with the text, Enter sends and Shift+Enter starts a new line (on a device with a mouse; a touch keyboard keeps Enter as a new line), the picture buttons and a Send button sit inside it.
+- The bar, the composer, the publish and revert windows and their notices use `lib/ui-text.ts` (German and English).
+- Colors are variables with an accent, and a dark set follows the system. Tried in the browser in light and dark, on a desktop and a phone-sized window.
+- Still to do in stage D: the chat (messages, folded steps, Undo on each change, chat picker in a chat header) and the Settings drawer with the two-tab phone layout. The Setup pill and chat picker still sit in the composer until then.

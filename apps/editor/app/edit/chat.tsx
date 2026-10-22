@@ -23,6 +23,8 @@ import { useEditorLanguage } from './language'
 import { SetupStart } from './setup-start'
 import { TipsCard } from './tips'
 import { PictureDesk } from './pictures'
+import { TopBar, type PreviewDevice } from './topbar'
+import { pageForPath, previewAddress, type PageEntry } from '@/lib/page-match'
 
 type SessionSummary = {
   id: string
@@ -85,6 +87,10 @@ export function ChatPanel({
   const [setupActive, setSetupActive] = useState(setupOpen)
   const [skipError, setSkipError] = useState('')
   const [tipsOpen, setTipsOpen] = useState(false)
+  const [pages, setPages] = useState<PageEntry[]>([])
+  const [shownPath, setShownPath] = useState('/preview/')
+  const [device, setDevice] = useState<PreviewDevice>('desktop')
+  const [changeCount, setChangeCount] = useState<number | null>(null)
   const fillDraftRef = useRef<(text: string) => void>(() => {})
   const [correcting, setCorrecting] = useState(false)
   const [correctError, setCorrectError] = useState('')
@@ -117,6 +123,8 @@ export function ChatPanel({
         setCurrent(opened)
       })
     refreshUndo()
+    refreshChanges()
+    refreshPages()
   }, [])
 
   function refreshUndo() {
@@ -125,6 +133,39 @@ export function ChatPanel({
       .then((data: { undo?: UndoTarget | null }) => {
         setUndo(data.undo?.messageId ? { messageId: data.undo.messageId } : null)
       })
+  }
+
+  function refreshChanges() {
+    void fetch('/api/publish')
+      .then((response) => response.json())
+      .then((data: { changes?: string[] }) => {
+        if (Array.isArray(data.changes)) setChangeCount(data.changes.length)
+      })
+      .catch(() => {})
+  }
+
+  function refreshPages() {
+    void fetch('/api/pages')
+      .then((response) => response.json())
+      .then((data: { pages?: PageEntry[] }) => {
+        if (Array.isArray(data.pages)) setPages(data.pages)
+      })
+      .catch(() => {})
+  }
+
+  function noteShownPath() {
+    try {
+      const pathname = previewRef.current?.contentWindow?.location.pathname
+      if (pathname) setShownPath(pathname)
+    } catch {
+      // The preview is the site's own page; if it cannot be read, the switcher keeps what it had.
+    }
+  }
+
+  function openPage(slug: string) {
+    const entry = pages.find((page) => page.slug === slug)
+    if (!entry) return
+    setPreviewSrc(previewAddress(entry, pageForPath(pages, shownPath)?.lang ?? null))
   }
 
   function remember(next: ChatRecord) {
@@ -208,6 +249,8 @@ export function ChatPanel({
     url.pathname = toPreviewPath(url.pathname)
     url.searchParams.set('v', String(Date.now()))
     setPreviewSrc(`${url.pathname}${url.search}${url.hash}`)
+    refreshChanges()
+    refreshPages()
   }
   reloadPreviewRef.current = reloadPreview
 
@@ -356,7 +399,7 @@ export function ChatPanel({
         setNotice({ text: data.error ?? 'Publish failed', bad: true })
         return
       }
-      setNotice({ text: 'Published.', bad: false })
+      setNotice({ text: uiText(language, 'notice.published'), bad: false })
       setPublishOpen(false)
       reloadPreview()
     } finally {
@@ -378,7 +421,7 @@ export function ChatPanel({
     }
     setRevertOpen(false)
     setUndo(null)
-    setNotice({ text: 'Reverted the draft.', bad: false })
+    setNotice({ text: uiText(language, 'notice.reverted'), bad: false })
     reloadPreview()
   }
 
@@ -403,28 +446,31 @@ export function ChatPanel({
     }
   }
 
+  const t = (key: Parameters<typeof uiText>[1], values?: Record<string, string | number>) => uiText(language, key, values)
+  const shown = pageForPath(pages, shownPath)
+
   return (
     <>
+    <div className="app">
+    <TopBar
+      language={language}
+      siteName={shownName}
+      pages={pages}
+      currentSlug={shown?.entry.slug ?? null}
+      onPage={openPage}
+      device={device}
+      onDevice={setDevice}
+      changes={changeCount}
+      publishBusy={publishBusy}
+      onPublish={() => void openPublish()}
+      onRevert={() => setRevertOpen(true)}
+      onSettings={() => setSettingsOpen(true)}
+      onTips={() => setTipsOpen(true)}
+      accountName={accountName}
+      accountPicture={accountPicture}
+    />
     <div className="shell" ref={shellRef}>
       <section className="chat">
-        <header className="bar">
-          <h1>{shownName}</h1>
-          <div className="bar-actions">
-            <button className="publish" type="button" disabled={publishBusy} onClick={() => void openPublish()}>
-              Publish
-            </button>
-            <button type="button" onClick={() => setRevertOpen(true)}>
-              Revert draft
-            </button>
-            <button type="button" onClick={() => setSettingsOpen(true)}>
-              Settings
-            </button>
-            <button type="button" className="icon-button" aria-label={uiText(language, 'tips.button')} title={uiText(language, 'tips.button')} onClick={() => setTipsOpen(true)}>
-              ?
-            </button>
-            <AccountMenu name={accountName} picture={accountPicture} />
-          </div>
-        </header>
         {notice && <p className={notice.bad ? 'error' : 'notice'}>{notice.text}</p>}
         {current && (
           <ChatConversation
@@ -435,6 +481,7 @@ export function ChatPanel({
             onBusy={setStreamBusy}
             onFinished={() => {
               refreshUndo()
+              refreshChanges()
               if (setupActive) refreshSetup()
               void fetch('/api/sessions')
                 .then((response) => response.json())
@@ -450,7 +497,7 @@ export function ChatPanel({
             skipError={skipError}
             modelReady={modelReady}
             onNeedToken={() => {
-              setNotice({ text: 'Save a token in Settings before sending.', bad: true })
+              setNotice({ text: t('notice.needToken'), bad: true })
               setSettingsOpen(true)
             }}
             undoMessageId={undo?.messageId ?? null}
@@ -515,9 +562,8 @@ export function ChatPanel({
         onKeyDown={nudgeChatWidth}
       />
       <section className="preview">
-        <iframe title="Draft preview" ref={previewRef} src={previewSrc} onLoad={() => syncCorrectionRef.current()} />
-        <div className="edit-mode">
-          <label>
+        <div className="preview-bar">
+          <label className="edit-mode">
             <input
               type="checkbox"
               role="switch"
@@ -529,27 +575,34 @@ export function ChatPanel({
               }}
             />
             <span className="edit-mode-switch" aria-hidden="true" />
-            Edit Mode
+            {t('preview.editMode')}
           </label>
-          <span className="edit-mode-tip" id="edit-mode-tip" role="tooltip">
-            Turn this on to change a sentence in the preview. The draft saves that change. Links stay put while this is on.
-          </span>
+          <span className="edit-mode-tip" id="edit-mode-tip">{correcting ? t('preview.editHint') : ''}</span>
+          <button type="button" className="quiet-button" onClick={reloadPreview}>{t('preview.reload')}</button>
+        </div>
+        <div className="preview-stage" data-device={device}>
+          <iframe
+            title="Draft preview"
+            ref={previewRef}
+            src={previewSrc}
+            onLoad={() => {
+              syncCorrectionRef.current()
+              noteShownPath()
+            }}
+          />
         </div>
         {correctError ? <p className="correct-note">{correctError}</p> : null}
       </section>
     </div>
+    </div>
       {publishOpen && (
         <div className="modal-back" onClick={() => setPublishOpen(false)}>
-          <div className="modal confirm" role="dialog" aria-modal="true" aria-label="Publish" onClick={(event) => event.stopPropagation()}>
-            <h2>Publish</h2>
-            {gapCount > 0 && (
-              <p className="gaps">
-                {gapCount} required texts are still empty. {gapSample.join(', ')}
-              </p>
-            )}
-            {!publishEnabled && <p className="gaps">Publish stays off until the public host is switched on.</p>}
+          <div className="modal confirm" role="dialog" aria-modal="true" aria-label={t('publish.title')} onClick={(event) => event.stopPropagation()}>
+            <h2>{t('publish.title')}</h2>
+            {gapCount > 0 && <p className="gaps">{t('publish.gaps', { count: gapCount, sample: gapSample.join(', ') })}</p>}
+            {!publishEnabled && <p className="gaps">{t('publish.off')}</p>}
             {publishChanges.length === 0 ? (
-              <p>Nothing would be published.</p>
+              <p>{t('publish.nothing')}</p>
             ) : (
               <ul className="publish-list">
                 {publishChanges.map((line, index) => (
@@ -558,10 +611,10 @@ export function ChatPanel({
               </ul>
             )}
             <div className="modal-actions">
-              <button type="button" onClick={() => setPublishOpen(false)}>Cancel</button>
+              <button type="button" onClick={() => setPublishOpen(false)}>{t('modal.cancel')}</button>
               {publishChanges.length > 0 && (
                 <button className="primary" type="button" disabled={publishBusy || !publishEnabled || gapCount > 0} onClick={() => void confirmPublish()}>
-                  Publish
+                  {t('publish.confirm')}
                 </button>
               )}
             </div>
@@ -570,12 +623,12 @@ export function ChatPanel({
       )}
       {revertOpen && (
         <div className="modal-back" onClick={() => setRevertOpen(false)}>
-          <div className="modal confirm" role="dialog" aria-modal="true" aria-label="Revert draft" onClick={(event) => event.stopPropagation()}>
-            <h2>Revert draft</h2>
-            <p>This puts the draft back to the public site and discards every unpublished change, including other people's.</p>
+          <div className="modal confirm" role="dialog" aria-modal="true" aria-label={t('revert.title')} onClick={(event) => event.stopPropagation()}>
+            <h2>{t('revert.title')}</h2>
+            <p>{t('revert.text')}</p>
             <div className="modal-actions">
-              <button type="button" onClick={() => setRevertOpen(false)}>Cancel</button>
-              <button className="primary" type="button" onClick={() => void confirmRevert()}>Revert draft</button>
+              <button type="button" onClick={() => setRevertOpen(false)}>{t('modal.cancel')}</button>
+              <button className="primary" type="button" onClick={() => void confirmRevert()}>{t('revert.title')}</button>
             </div>
           </div>
         </div>
@@ -682,6 +735,32 @@ function ChatConversation({
   const messagesRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLTextAreaElement>(null)
   const pictureLock = useRef(false)
+  const placeholder = uiText(language, mode === 'setup' ? 'composer.placeholderSetup' : 'composer.placeholder')
+
+  function growDraft() {
+    const field = draftRef.current
+    if (!field) return
+    field.style.height = 'auto'
+    field.style.height = `${Math.min(field.scrollHeight, 240)}px`
+  }
+
+  function submitDraft() {
+    if (pictureLock.current) return
+    const field = draftRef.current
+    const value = field?.value.trim() ?? ''
+    if (!value || busy) return
+    if (!modelReady) {
+      onNeedToken()
+      return
+    }
+    if (field) {
+      field.value = ''
+      growDraft()
+    }
+    void sendMessage({ text: value }).then(() => {
+      onFinished()
+    })
+  }
 
   useEffect(() => {
     onBusy(busy)
@@ -692,6 +771,7 @@ function ChatConversation({
       const field = draftRef.current
       if (!field) return
       field.value = text
+      growDraft()
       field.focus()
       field.setSelectionRange(text.length, text.length)
     }
@@ -759,31 +839,35 @@ function ChatConversation({
       </div>
       <div className="composer">
         {controls}
-      <form
-        onSubmit={(event) => {
-          event.preventDefault()
-          if (pictureLock.current) return
-          const field = draftRef.current
-          const value = field?.value.trim() ?? ''
-          if (!value || busy) return
-          if (!modelReady) {
-            onNeedToken()
-            return
-          }
-          if (field) field.value = ''
-          void sendMessage({ text: value }).then(() => {
-            onFinished()
-          })
-        }}
-      >
-        <textarea ref={draftRef} name="draft" rows={5} placeholder={mode === 'setup' ? 'Describe the project, or paste a website to start from' : 'Change a page, a layout, or the shell'} />
-        <div className="draft-actions">
-          <div className="draft-tools">
-            <PictureDesk draftRef={draftRef} onLock={(locked) => { pictureLock.current = locked }} />
+        <form
+          className="draft"
+          onSubmit={(event) => {
+            event.preventDefault()
+            submitDraft()
+          }}
+        >
+          <textarea
+            ref={draftRef}
+            name="draft"
+            rows={2}
+            aria-label={placeholder}
+            placeholder={placeholder}
+            onInput={growDraft}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+              if (!window.matchMedia('(pointer: fine)').matches) return
+              event.preventDefault()
+              submitDraft()
+            }}
+          />
+          <div className="draft-actions">
+            <div className="draft-tools">
+              <PictureDesk draftRef={draftRef} onLock={(locked) => { pictureLock.current = locked }} />
+            </div>
+            <button type="submit" className="send" disabled={busy}>{busy ? uiText(language, 'composer.working') : uiText(language, 'composer.send')}</button>
           </div>
-          <button type="submit" disabled={busy}>{busy ? 'Working…' : 'Send'}</button>
-        </div>
-      </form>
+          <p className="draft-hint">{uiText(language, 'composer.hint')}</p>
+        </form>
       </div>
     </>
   )
@@ -1043,34 +1127,6 @@ function SettingsModal({
           </button>
         </div>
       </div>
-    </div>
-  )
-}
-
-function AccountMenu({ name, picture }: { name: string; picture?: string }) {
-  const [open, setOpen] = useState(false)
-  const [broken, setBroken] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const close = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [open])
-  const initial = name.trim().charAt(0).toUpperCase() || 'E'
-  return (
-    <div className="account" ref={rootRef}>
-      <button type="button" aria-expanded={open} aria-haspopup="menu" aria-label="Account" onClick={() => setOpen((value) => !value)}>
-        {picture && !broken ? <img src={picture} alt="" onError={() => setBroken(true)} /> : <span>{initial}</span>}
-      </button>
-      {open && (
-        <div className="account-menu" role="menu">
-          <p>{name}</p>
-          <a role="menuitem" href="/auth/logout">Log out</a>
-        </div>
-      )}
     </div>
   )
 }
