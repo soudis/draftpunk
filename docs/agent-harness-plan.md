@@ -310,3 +310,10 @@ Decided in a grilling session; ADRs 0015 and 0016 and the glossary terms Tips an
 - The "working" line is in the editor's language and says what kind of thing is going on: looking things up, changing the website, checking the result. `toolKind` in `lib/activity.ts` sorts the tools into those groups.
 - Every reply that changed the site has its own Undo, not only the newest. The draft stores one commit per reply (`reply_commits`); `undoReply` takes any earlier reply back, as long as no later change edited the same files, and says so when one did. Revert draft clears them all.
 - The tips and the bar both say "Publish" and "Undo", so the words match the buttons.
+
+### Stage D, step 3 is built (Settings and the phone layout)
+
+- Settings is a drawer from the right with three sections: Website (name), Editor (language) and AI model (address, model, the cheaper model for plain text edits, token). Escape and a click outside close it. A site without a token opens it with a short note saying why. All its texts are in German and English; the code lives in `app/edit/settings.tsx`.
+- Below 800 px the window has two tabs, Chat and Preview, at the bottom. The top bar shrinks to the page switcher, Publish with its count, the menu and the account. Picking a page opens the Preview tab; a change that a reply saves puts a dot on the Preview tab until it is opened. The preview toolbar keeps Edit Mode and Reload and drops the Computer / Phone toggle, since the window already is a phone.
+- Tried in the browser at desktop width (light and dark) and at 375 px.
+- Stage D is now complete. Not done: trying the whole editor with a real model, and the two-column layout between 800 and about 1000 px, which is tight but works.

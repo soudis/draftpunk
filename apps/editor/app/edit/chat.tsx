@@ -10,19 +10,13 @@ import { presentChatError } from '@/lib/api-error'
 import type { Block, Inline } from '@/lib/chat-markdown'
 import { parseChatMarkdown } from '@/lib/chat-markdown'
 import { chatPieces } from '@/lib/chat-pieces'
-import {
-  addressSuggestions,
-  modelAfterProviderPick,
-  modelSuggestions,
-  providerForBase,
-  type ModelChoice,
-} from '@/lib/model-catalog'
 import type { EditorMode } from '@/lib/mode'
-import { uiText, EDITOR_LANGUAGES, parseEditorLanguage, type EditorLanguage } from '@/lib/ui-text'
+import { uiText, type EditorLanguage } from '@/lib/ui-text'
 import { useEditorLanguage } from './language'
 import { SetupStart } from './setup-start'
 import { TipsCard } from './tips'
 import { PictureDesk } from './pictures'
+import { SettingsDrawer } from './settings'
 import { TopBar } from './topbar'
 import { pageForPath, previewAddress, type PageEntry } from '@/lib/page-match'
 
@@ -90,6 +84,8 @@ export function ChatPanel({
   const [pages, setPages] = useState<PageEntry[]>([])
   const [shownPath, setShownPath] = useState('/preview/')
   const [device, setDevice] = useState<PreviewDevice>('desktop')
+  const [tab, setTab] = useState<'chat' | 'preview'>('chat')
+  const [previewNews, setPreviewNews] = useState(false)
   const [changeCount, setChangeCount] = useState<number | null>(null)
   const fillDraftRef = useRef<(text: string) => void>(() => {})
   const [correcting, setCorrecting] = useState(false)
@@ -166,6 +162,8 @@ export function ChatPanel({
     const entry = pages.find((page) => page.slug === slug)
     if (!entry) return
     setPreviewSrc(previewAddress(entry, pageForPath(pages, shownPath)?.lang ?? null))
+    setTab('preview')
+    setPreviewNews(false)
   }
 
   function remember(next: ChatRecord) {
@@ -251,6 +249,7 @@ export function ChatPanel({
     setPreviewSrc(`${url.pathname}${url.search}${url.hash}`)
     refreshChanges()
     refreshPages()
+    if (tab === 'chat') setPreviewNews(true)
   }
   reloadPreviewRef.current = reloadPreview
 
@@ -468,7 +467,7 @@ export function ChatPanel({
       accountName={accountName}
       accountPicture={accountPicture}
     />
-    <div className="shell" ref={shellRef}>
+    <div className="shell" ref={shellRef} data-tab={tab}>
       <section className="chat">
         {current && (
           <div className="chat-header">
@@ -589,6 +588,22 @@ export function ChatPanel({
         {correctError ? <p className="correct-note">{correctError}</p> : null}
       </section>
     </div>
+    <nav className="tabs" aria-label={t('tabs.label')}>
+      <button type="button" aria-pressed={tab === 'chat'} onClick={() => setTab('chat')}>
+        {t('tabs.chat')}
+      </button>
+      <button
+        type="button"
+        aria-pressed={tab === 'preview'}
+        onClick={() => {
+          setTab('preview')
+          setPreviewNews(false)
+        }}
+      >
+        {t('tabs.preview')}
+        {previewNews && <span className="tab-dot" role="img" aria-label={t('tabs.news')} />}
+      </button>
+    </nav>
     </div>
       {publishOpen && (
         <div className="modal-back" onClick={() => setPublishOpen(false)}>
@@ -645,10 +660,11 @@ export function ChatPanel({
         </div>
       )}
       {settingsOpen && (
-        <SettingsModal
+        <SettingsDrawer
           siteName={shownName}
           language={language}
           onLanguage={setLanguage}
+          needToken={!modelReady}
           onClose={() => setSettingsOpen(false)}
           onSaved={(saved) => {
             setShownName(saved.siteName)
@@ -869,264 +885,6 @@ function ChatConversation({
         </form>
       </div>
     </>
-  )
-}
-
-type SuggestOption =
-  | { kind: 'group'; label: string }
-  | { kind: 'item'; id: string; title: string; detail?: string }
-
-function choiceId(choice: ModelChoice): string {
-  return `${choice.provider}::${choice.model}`
-}
-
-function choiceById(choices: ModelChoice[], id: string): ModelChoice | undefined {
-  return choices.find((choice) => choiceId(choice) === id)
-}
-
-function modelOptions(query: string, baseURL: string): SuggestOption[] {
-  const options: SuggestOption[] = []
-  let provider = ''
-  for (const choice of modelSuggestions(query, baseURL)) {
-    if (choice.provider !== provider) {
-      options.push({ kind: 'group', label: choice.provider })
-      provider = choice.provider
-    }
-    options.push({ kind: 'item', id: choiceId(choice), title: choice.model })
-  }
-  return options
-}
-
-function SuggestField({
-  label,
-  value,
-  onValue,
-  options,
-  onPick,
-}: {
-  label: string
-  value: string
-  onValue: (value: string) => void
-  options: SuggestOption[]
-  onPick: (id: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const [active, setActive] = useState(0)
-  const items = options.filter((option): option is Extract<SuggestOption, { kind: 'item' }> => option.kind === 'item')
-
-  useEffect(() => {
-    setActive(0)
-  }, [value])
-
-  function pick(id: string) {
-    onPick(id)
-    setOpen(false)
-  }
-
-  function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      if (!open) setOpen(true)
-      if (items.length === 0) return
-      event.preventDefault()
-      setActive((index) => {
-        const next = event.key === 'ArrowDown' ? index + 1 : index - 1
-        return (next + items.length) % items.length
-      })
-      return
-    }
-    if (!open) return
-    if (event.key === 'Enter' && items[active]) {
-      event.preventDefault()
-      pick(items[active].id)
-    } else if (event.key === 'Escape') {
-      event.preventDefault()
-      setOpen(false)
-    }
-  }
-
-  return (
-    <label className="suggest">
-      {label}
-      <input
-        value={value}
-        role="combobox"
-        aria-expanded={open}
-        aria-autocomplete="list"
-        onFocus={() => setOpen(true)}
-        onClick={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
-        onChange={(event) => {
-          onValue(event.target.value)
-          setOpen(true)
-        }}
-        onKeyDown={onKeyDown}
-      />
-      {open && options.length > 0 && (
-        <div className="suggest-list" role="listbox">
-          {options.map((option) =>
-            option.kind === 'group' ? (
-              <div key={option.label} className="suggest-group">
-                {option.label}
-              </div>
-            ) : (
-              <button
-                key={option.id}
-                type="button"
-                role="option"
-                data-active={items[active]?.id === option.id ? 'true' : undefined}
-                onMouseDown={(event) => {
-                  event.preventDefault()
-                  pick(option.id)
-                }}
-              >
-                {option.title}
-                {option.detail && <span className="detail">{option.detail}</span>}
-              </button>
-            ),
-          )}
-        </div>
-      )}
-    </label>
-  )
-}
-
-function SettingsModal({
-  siteName,
-  language,
-  onLanguage,
-  onClose,
-  onSaved,
-}: {
-  siteName: string
-  language: EditorLanguage
-  onLanguage: (language: EditorLanguage) => void
-  onClose: () => void
-  onSaved: (saved: { siteName: string; tokenSet: boolean }) => void
-}) {
-  const [name, setName] = useState(siteName)
-  const [baseURL, setBaseURL] = useState('')
-  const [model, setModel] = useState('')
-  const [contentModel, setContentModel] = useState('')
-  const [apiKey, setApiKey] = useState('')
-  const [tokenSet, setTokenSet] = useState(false)
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    void fetch('/api/settings')
-      .then((response) => response.json())
-      .then((data: { baseURL?: string; model?: string; contentModel?: string; siteName?: string; tokenSet?: boolean; error?: string }) => {
-        if (data.error) {
-          setError(data.error)
-          return
-        }
-        setBaseURL(data.baseURL ?? '')
-        setModel(data.model ?? '')
-        setContentModel(data.contentModel ?? '')
-        setTokenSet(data.tokenSet === true)
-        if (data.siteName) setName(data.siteName)
-      })
-      .catch(() => setError('Settings could not be loaded.'))
-  }, [])
-
-  async function save() {
-    setBusy(true)
-    setError('')
-    try {
-      const response = await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ siteName: name, baseURL, model, apiKey, contentModel }),
-      })
-      const data = (await response.json()) as { error?: string; siteName?: string; tokenSet?: boolean }
-      if (!response.ok || data.error || !data.siteName) {
-        setError(data.error ?? 'Settings could not be saved.')
-        return
-      }
-      onSaved({ siteName: data.siteName, tokenSet: data.tokenSet === true })
-    } catch {
-      setError('Settings could not be saved.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="modal-back" onClick={onClose}>
-      <div className="modal settings" role="dialog" aria-modal="true" aria-label="Settings" onClick={(event) => event.stopPropagation()}>
-        <h2>Settings</h2>
-        <label>
-          Site name
-          <input value={name} onChange={(event) => setName(event.target.value)} />
-        </label>
-        <label>
-          {uiText(language, 'language.label')}
-          <select value={language} onChange={(event) => onLanguage(parseEditorLanguage(event.target.value))}>
-            {EDITOR_LANGUAGES.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <SuggestField
-          label="Model address"
-          value={baseURL}
-          onValue={setBaseURL}
-          options={addressSuggestions(baseURL).map((provider) => ({
-            kind: 'item' as const,
-            id: provider.baseURL,
-            title: provider.name,
-            detail: provider.baseURL,
-          }))}
-          onPick={(id) => {
-            const provider = providerForBase(id)
-            if (!provider) return
-            setBaseURL(provider.baseURL)
-            setModel((current) => modelAfterProviderPick(current, provider))
-          }}
-        />
-        <SuggestField
-          label="Model name"
-          value={model}
-          onValue={setModel}
-          options={modelOptions(model, baseURL)}
-          onPick={(id) => {
-            const choice = choiceById(modelSuggestions(model, baseURL), id)
-            if (!choice) return
-            setModel(choice.model)
-            setBaseURL(choice.baseURL)
-          }}
-        />
-        <SuggestField
-          label="Cheaper model for plain text edits (optional)"
-          value={contentModel}
-          onValue={setContentModel}
-          options={modelOptions(contentModel, baseURL)}
-          onPick={(id) => {
-            const choice = choiceById(modelSuggestions(contentModel, baseURL), id)
-            if (choice) setContentModel(choice.model)
-          }}
-        />
-        <label>
-          Token
-          <input
-            type="password"
-            value={apiKey}
-            autoComplete="off"
-            placeholder={tokenSet ? 'Leave blank to keep the current token' : 'Enter a token'}
-            onChange={(event) => setApiKey(event.target.value)}
-          />
-        </label>
-        {error && <p className="picture-error">{error}</p>}
-        <div className="modal-actions">
-          <button type="button" onClick={onClose}>Cancel</button>
-          <button className="primary" type="button" disabled={busy} onClick={() => void save()}>
-            Save
-          </button>
-        </div>
-      </div>
-    </div>
   )
 }
 
