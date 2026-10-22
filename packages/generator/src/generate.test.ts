@@ -19,6 +19,7 @@ import {
   readLabels,
   readLayout,
   readPage,
+  readSiteConfig,
   renderContent,
   replaceLayout,
   validateSlots,
@@ -473,4 +474,25 @@ test('fonts are files in the site: face rules, preload, and a font from elsewher
   const html = fs.readFileSync(path.join(out.outDir, 'index.html'), 'utf8')
   assert.equal((html.match(/rel="preload"/g) ?? []).length, 2)
   assert.equal(/googleapis|gstatic/.test(html), false)
+})
+
+test('the published address comes from the deployment, and site.yml may override it', () => {
+  const root = newSite('housing-url-')
+  const before = process.env.SITE_URL
+  try {
+    delete process.env.SITE_URL
+    assert.equal(readSiteConfig(root).url, undefined)
+    process.env.SITE_URL = 'https://deploy.example.org/'
+    assert.equal(readSiteConfig(root).url, 'https://deploy.example.org')
+    const out = generate(root, path.join(root, 'a'))
+    assert.match(fs.readFileSync(path.join(out.outDir, 'sitemap.xml'), 'utf8'), /<loc>https:\/\/deploy\.example\.org\/kontakt\/<\/loc>/)
+    fs.writeFileSync(path.join(root, 'design', 'site.yml'), `${fs.readFileSync(path.join(root, 'design', 'site.yml'), 'utf8')}url: https://own.example.org\n`)
+    assert.equal(readSiteConfig(root).url, 'https://own.example.org')
+    process.env.SITE_URL = 'not an address'
+    fs.writeFileSync(path.join(root, 'design', 'site.yml'), fs.readFileSync(path.join(root, 'design', 'site.yml'), 'utf8').replace('url: https://own.example.org\n', ''))
+    assert.equal(readSiteConfig(root).url, undefined)
+  } finally {
+    if (before === undefined) delete process.env.SITE_URL
+    else process.env.SITE_URL = before
+  }
 })

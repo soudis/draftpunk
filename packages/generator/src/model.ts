@@ -73,7 +73,7 @@ export function readSiteConfig(root: string): SiteConfig {
   const fromDir = path.basename(root).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
   return {
     name: String(raw.name ?? '').trim() || 'Website',
-    url: siteUrl(raw.url),
+    url: siteUrl(raw.url) ?? siteUrl(process.env.SITE_URL),
     id: SITE_ID.test(requested) ? requested : SITE_ID.test(fromDir) ? fromDir : 'site',
     timezone: validTimeZone(String(raw.timezone ?? '').trim() || 'Europe/Vienna'),
     languages: chosen,

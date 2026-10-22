@@ -260,7 +260,7 @@ Decided in a grilling session; ADRs 0015 and 0016 and the glossary terms Tips an
 - The layout guard refuses external resources in templates, shell and stylesheets. Outbound links stay allowed.
 - `add_font` downloads an open-licence family on the server and registers it as a token.
 
-**Stage B: setup that starts by itself**
+**Stage B: setup that starts by itself** (built; see the end of this section)
 - A fresh instance opens in Setup with a scripted first message and quick replies, no model call: project name, what it is, languages, a site whose look is liked or a mood, expected sections, calendar yes or no, email and imprint details. Only the first two are required, and "skip" keeps the plain starter. The answers go to the agent as the first message.
 
 **Stage C: Tips**
@@ -277,3 +277,11 @@ Decided in a grilling session; ADRs 0015 and 0016 and the glossary terms Tips an
 - `add_font` downloads an open-licence family (OFL, Apache, MIT, Ubuntu) from the Fontsource catalog on the server, once, into the site, registers it, and can set the font token. Tried against the live catalog with Lora: two files of 21 KB, loaded from the site, with no outside request. A font token whose family has no file is reported.
 - Setup proposals may carry `site.url`. The prompt tells the agent what every site has.
 - Not done in this stage: asking for the published address during setup (it belongs to the scripted questions in stage B).
+
+### Stage B is built
+
+- A fresh instance (setup not accepted, empty chat) opens in Setup and shows seven scripted questions, one at a time, in the editor's language: project name and what it is (required), languages, a site or a mood, sections, calendar, contact and imprint. Quick replies are buttons; the person may write their own words. A review step lists the answers, each of which can be reopened, and "Start the setup" sends them as one message. Asking costs no model call. "Skip and start from the plain starter" is on every step and writes `setup.yml` without a proposal (`POST /api/setup`).
+- The published address is not asked: the deployment supplies it as `SITE_URL`, and `url` in `site.yml` overrides it.
+- The editor has a language (German by default, English in Settings) kept per browser; only the setup texts use it so far (`lib/ui-text.ts`).
+- The setup prompt knows the format of that first message and says to use the answers, ask nothing already answered, and leave missing details as short placeholders.
+- Tried in the browser against a mock model: the questions, chips, review, send, skip, and a second new chat. Not yet tried with a real model.

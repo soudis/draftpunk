@@ -144,7 +144,7 @@ test('a font token with no file is reported, a bad fonts.yml is refused, and the
   const prompt = systemPrompt('edit', root)
   assert.match(prompt, /A site loads nothing from another host/)
   assert.match(prompt, /For another font call add_font/)
-  assert.match(prompt, /set url in site\.yml/)
+  assert.match(prompt, /The deployment supplies it, so never ask for it/)
   assert.match(systemPrompt('setup', root), /call add_font for it, with as set, before you propose tokens/)
   assert.ok(parseTokens(fs.readFileSync(path.join(root, 'design', 'tokens.yml'), 'utf8')).fonts.serif.startsWith('"Lora"'))
 })

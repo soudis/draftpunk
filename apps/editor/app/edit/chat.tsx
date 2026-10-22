@@ -18,6 +18,9 @@ import {
   type ModelChoice,
 } from '@/lib/model-catalog'
 import type { EditorMode } from '@/lib/mode'
+import { uiText, EDITOR_LANGUAGES, parseEditorLanguage, type EditorLanguage } from '@/lib/ui-text'
+import { useEditorLanguage } from './language'
+import { SetupStart } from './setup-start'
 import { PictureDesk } from './pictures'
 
 type SessionSummary = {
@@ -77,6 +80,9 @@ export function ChatPanel({
   const [shownName, setShownName] = useState(siteName)
   const [modelReady, setModelReady] = useState(tokenSet)
   const [settingsOpen, setSettingsOpen] = useState(!tokenSet)
+  const [language, setLanguage] = useEditorLanguage()
+  const [setupActive, setSetupActive] = useState(setupOpen)
+  const [skipError, setSkipError] = useState('')
   const [correcting, setCorrecting] = useState(false)
   const [correctError, setCorrectError] = useState('')
   const correctingRef = useRef(false)
@@ -94,8 +100,18 @@ export function ChatPanel({
       .then((response) => response.json())
       .then((data: { sessions?: SessionSummary[]; current?: ChatRecord }) => {
         if (!data.sessions || !data.current) return
-        setSessions(data.sessions)
-        setCurrent(data.current)
+        const opened = data.current
+        // A fresh site opens in setup, with the scripted questions. A chat that has been used is left as it is.
+        if (setupOpen && opened.messages.length === 0 && opened.mode !== 'setup') {
+          opened.mode = 'setup'
+          void fetch(`/api/sessions/${opened.id}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ mode: 'setup' }),
+          })
+        }
+        setSessions(data.sessions.map((session) => (session.id === opened.id ? { ...session, mode: opened.mode } : session)))
+        setCurrent(opened)
       })
     refreshUndo()
   }, [])
@@ -151,6 +167,30 @@ export function ChatPanel({
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ mode }),
     })
+  }
+
+  function refreshSetup() {
+    void fetch('/api/setup')
+      .then((response) => response.json())
+      .then((data: { accepted?: boolean }) => {
+        if (data.accepted === true) setSetupActive(false)
+      })
+  }
+
+  async function skipSetup() {
+    setSkipError('')
+    const response = await fetch('/api/setup', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'skip' }),
+    })
+    if (!response.ok) {
+      setSkipError(uiText(language, 'setup.skipFailed'))
+      return
+    }
+    setSetupActive(false)
+    selectMode('edit')
+    reloadPreview()
   }
 
   function reloadPreview() {
@@ -389,6 +429,7 @@ export function ChatPanel({
             onBusy={setStreamBusy}
             onFinished={() => {
               refreshUndo()
+              if (setupActive) refreshSetup()
               void fetch('/api/sessions')
                 .then((response) => response.json())
                 .then((data: { sessions?: SessionSummary[] }) => {
@@ -396,6 +437,10 @@ export function ChatPanel({
                 })
             }}
             onSaved={reloadPreview}
+            language={language}
+            setupStart={setupActive}
+            onSkipSetup={() => void skipSetup()}
+            skipError={skipError}
             modelReady={modelReady}
             onNeedToken={() => {
               setNotice({ text: 'Save a token in Settings before sending.', bad: true })
@@ -406,7 +451,7 @@ export function ChatPanel({
             onUndo={() => void undoReply()}
             controls={
               <div className="composer-line">
-                {(setupOpen || current.mode === 'setup') && (
+                {(setupActive || current.mode === 'setup') && (
                   <div className="modes">
                     <button type="button" aria-pressed={current.mode === 'setup'} disabled={streamBusy} onClick={() => selectMode('setup')}>
                       Setup
@@ -531,6 +576,8 @@ export function ChatPanel({
       {settingsOpen && (
         <SettingsModal
           siteName={shownName}
+          language={language}
+          onLanguage={setLanguage}
           onClose={() => setSettingsOpen(false)}
           onSaved={(saved) => {
             setShownName(saved.siteName)
@@ -553,6 +600,10 @@ function ChatConversation({
   onBusy,
   onFinished,
   onSaved,
+  language,
+  setupStart,
+  onSkipSetup,
+  skipError,
   modelReady,
   onNeedToken,
   undoMessageId,
@@ -566,6 +617,10 @@ function ChatConversation({
   onBusy: (busy: boolean) => void
   onFinished: () => void
   onSaved: () => void
+  language: EditorLanguage
+  setupStart: boolean
+  onSkipSetup: () => void
+  skipError: string
   modelReady: boolean
   onNeedToken: () => void
   undoMessageId: string | null
@@ -641,6 +696,21 @@ function ChatConversation({
           </article>
           )
         })}
+        {setupStart && mode === 'setup' && messages.length === 0 && !busy && (
+          <SetupStart
+            language={language}
+            disabled={busy}
+            skipError={skipError}
+            onSkip={onSkipSetup}
+            onSend={(text) => {
+              if (!modelReady) {
+                onNeedToken()
+                return
+              }
+              void sendMessage({ text }).then(() => onFinished())
+            }}
+          />
+        )}
         {activity && <p className="working" role="status">{activity}</p>}
         {apiError && (
           <p className="api-error" role="alert">
@@ -801,10 +871,14 @@ function SuggestField({
 
 function SettingsModal({
   siteName,
+  language,
+  onLanguage,
   onClose,
   onSaved,
 }: {
   siteName: string
+  language: EditorLanguage
+  onLanguage: (language: EditorLanguage) => void
   onClose: () => void
   onSaved: (saved: { siteName: string; tokenSet: boolean }) => void
 }) {
@@ -863,6 +937,16 @@ function SettingsModal({
         <label>
           Site name
           <input value={name} onChange={(event) => setName(event.target.value)} />
+        </label>
+        <label>
+          {uiText(language, 'language.label')}
+          <select value={language} onChange={(event) => onLanguage(parseEditorLanguage(event.target.value))}>
+            {EDITOR_LANGUAGES.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
         </label>
         <SuggestField
           label="Model address"

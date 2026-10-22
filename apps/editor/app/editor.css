@@ -533,3 +533,23 @@ textarea {
   .shell { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) minmax(180px, 38vh); }
   .splitter { display: none; }
 }
+
+/* Setup: the questions a fresh site starts with. */
+.setup-start { padding: 16px; margin: 4px 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 10px; }
+.setup-start h2 { margin: 0; font-size: 18px; }
+.setup-start h3 { margin: 4px 0 0; font-size: 16px; }
+.setup-intro, .setup-help { margin: 0; color: var(--muted); font-size: 13px; }
+.setup-progress { margin: 0; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.setup-start input, .setup-start textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; background: var(--surface); color: var(--ink); }
+.setup-start .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.setup-start .chip { border-radius: 999px; padding: 6px 12px; }
+.setup-start .chip[aria-pressed="true"] { background: var(--accent); color: white; border-color: var(--accent); }
+.setup-start .own-words { display: grid; gap: 4px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.setup-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 6px; }
+.setup-actions .primary { background: var(--accent); color: white; border-color: var(--accent); }
+.setup-actions .primary:disabled { opacity: 0.5; }
+.setup-review { margin: 0; display: grid; gap: 8px; }
+.setup-review dt { font-size: 12px; color: var(--muted); }
+.setup-review dt button { padding: 0; border: 0; background: none; text-decoration: underline; cursor: pointer; font: inherit; color: inherit; }
+.setup-review dd { margin: 0; font-size: 14px; white-space: pre-wrap; }
+.setup-skip { margin: 4px 0 0; text-align: center; }
