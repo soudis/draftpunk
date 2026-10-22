@@ -84,6 +84,11 @@ export async function resolveAddress(fetchPage: FetchPage, url: string, hops = 5
   return { failedAt: current, reason: 'too many redirects' }
 }
 
+/** Wait until the document has a body and has finished loading. A page with many scripts is still parsing when the first wait returns. */
+async function settle(page: Page): Promise<void> {
+  await page.waitForFunction("document.readyState === 'complete' && !!document.body", undefined, { timeout: 8_000 }).catch(() => undefined)
+}
+
 export async function withSitePage<T>(
   input: string,
   options: { viewport?: SiteViewport; fetchPage?: FetchPage },
@@ -134,11 +139,13 @@ export async function withSitePage<T>(
           : 'it could not be reached'
       throw new Error(`Could not read ${input}: ${reason}.`)
     })
-    await page.waitForLoadState('load', { timeout: 8_000 }).catch(() => undefined)
+    await settle(page)
     await page.waitForLoadState('networkidle', { timeout: 3_000 }).catch(() => undefined)
     await page.evaluate(TIDY).catch(() => undefined)
     await page.evaluate(SCROLL).catch(() => undefined)
     await page.evaluate('document.fonts ? document.fonts.ready.then(() => true) : true').catch(() => undefined)
+    // A page that sends itself to another address (a language redirect, a reload) starts parsing again, so look once more.
+    await settle(page)
     return run(page, page.url())
   })()
   const timeout = new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error(`Could not read ${input}: it took longer than ${OVERALL_MS / 1000} seconds.`)), OVERALL_MS).unref())

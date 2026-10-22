@@ -12,16 +12,10 @@ export const MENU_SOURCE = `(() => {
   const clean = (text) => (text || '').replace(/\\s+/g, ' ').trim().slice(0, 80)
   const usable = (a) => a && a.href && /^https?:/i.test(a.href) && !(a.getAttribute('href') || '').startsWith('#') && clean(a.textContent)
   const link = (a) => ({ label: clean(a.textContent), href: a.href })
-  const navs = [...document.querySelectorAll('nav, [role="navigation"]')].filter((nav) => !nav.closest('footer'))
-  const score = (nav) => nav.querySelectorAll('a[href]').length + (nav.closest('header') ? 100 : 0)
-  navs.sort((a, b) => score(b) - score(a))
-  const nav = navs[0]
-  if (!nav) return []
-  const entries = []
-  const list = nav.querySelector('ul')
-  if (list) {
-    const top = [...list.children].filter((el) => el.tagName === 'LI')
-    for (const item of top) {
+  const shown = (el) => el.getBoundingClientRect().height > 0
+  const entriesOf = (list) => {
+    const entries = []
+    for (const item of [...list.children].filter((el) => el.tagName === 'LI')) {
       // The entry's own link is the first one that belongs to this item and not to a list nested in it.
       const direct = [...item.querySelectorAll('a[href]')].find((a) => a.closest('li') === item)
       if (!usable(direct)) continue
@@ -30,7 +24,22 @@ export const MENU_SOURCE = `(() => {
     }
     return entries
   }
-  for (const child of nav.children) {
+  // The main menu is the top-level list in a header or a navigation with the most links, a shown one before a hidden
+  // copy of it (themes keep one for a phone), and one with nested lists before one without.
+  const candidates = [...document.querySelectorAll('ul, ol')].filter(
+    (ul) => !ul.closest('footer') && !(ul.parentElement && ul.parentElement.closest('li')) && ul.closest('nav, header, [role="navigation"]'),
+  )
+  const score = (ul) => ul.querySelectorAll('a[href]').length + (shown(ul) ? 60 : 0) + (ul.querySelector('li ul, li ol') ? 20 : 0) + (ul.closest('header') ? 10 : 0)
+  candidates.sort((a, b) => score(b) - score(a))
+  for (const list of candidates) {
+    const entries = entriesOf(list)
+    if (entries.length >= 2) return entries
+  }
+  // No list: links, and groups of links in a box, directly in a navigation.
+  const navs = [...document.querySelectorAll('nav, [role="navigation"]')].filter((nav) => !nav.closest('footer'))
+  navs.sort((a, b) => b.querySelectorAll('a[href]').length - a.querySelectorAll('a[href]').length)
+  const entries = []
+  for (const child of navs[0] ? navs[0].children : []) {
     if (child.tagName === 'A') {
       if (usable(child)) entries.push({ ...link(child), children: [] })
       continue

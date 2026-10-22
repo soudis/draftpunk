@@ -6,8 +6,9 @@ import test from 'node:test'
 import { initSite, readYaml, writePage, writeYaml } from '@schlor/generator'
 import { closeBrowser } from './browser'
 import { toolsFor } from './tools'
-import { buildNav, resolverFor, type MenuEntry } from './source-menu'
+import { buildNav, MENU_SOURCE, resolverFor, type MenuEntry } from './source-menu'
 import { withSitePage } from './web-render'
+import { collectPaths } from './site-map'
 
 const CHROME = ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find((file) => fs.existsSync(file))
 const call = { toolCallId: 'menu', messages: [] as never[] }
@@ -96,6 +97,43 @@ test('copy_menu reads the nested menu of a site in a browser and writes it to na
     const home = fs.readFileSync(path.join(root, 'dist', 'index.html'), 'utf8')
     assert.match(home, /class="submenu[^"]*"[\s\S]*Wer wir sind/)
     assert.match(home, /href="https:\/\/circus-trap\.org\/"/)
+  } finally {
+    await closeBrowser()
+    delete process.env.BROWSER_PATH
+    delete process.env.BROWSER_NO_SANDBOX
+  }
+})
+
+test('site_map follows the redirect of a front page, and reads the sitemap of the address it ends at', async () => {
+  const seen: string[] = []
+  const fetchPage = async (url: string) => {
+    seen.push(url)
+    if (url === 'https://old.example/') return new Response(null, { status: 301, headers: { location: 'https://www.new.example/' } })
+    if (url === 'https://www.new.example/') return new Response('<a href="/ueber-uns/">Über uns</a><a href="https://elsewhere.example/">Anderswo</a>', { status: 200, headers: { 'content-type': 'text/html' } })
+    if (url === 'https://www.new.example/robots.txt') return new Response('Sitemap: https://www.new.example/sitemap.xml', { status: 200 })
+    if (url === 'https://www.new.example/sitemap.xml') return new Response('<urlset><url><loc>https://www.new.example/mitmachen/</loc></url></urlset>', { status: 200 })
+    return new Response(null, { status: 404 })
+  }
+  const found = await collectPaths('https://old.example/', fetchPage as never)
+  assert.equal(found.origin, 'https://www.new.example')
+  assert.deepEqual(found.paths, ['/mitmachen', '/ueber-uns'])
+  assert.equal(found.sitemap, true)
+  assert.equal(seen.includes('https://old.example/robots.txt'), false)
+})
+
+const THEMED = `<!doctype html><html><head><meta charset="utf-8"><title>Theme</title></head><body>
+<header><div class="bar"><ul class="lang"><li><a href="/">de</a></li><li><a href="/en/">en</a></li></ul>
+<div class="main"><ul class="menu"><li><a href="/projekt/">Projekt</a><ul class="sub-menu"><li><a href="/projekt/ziele/">Ziele</a></li><li><a href="/projekt/team/">Team</a></li></ul></li><li><a href="/haeuser/">Häuser</a></li><li><a href="/kontakt/">Kontakt</a></li></ul></div>
+<div class="phone" style="display:none"><ul class="menu"><li><a href="/projekt/">Projekt</a></li><li><a href="/haeuser/">Häuser</a></li><li><a href="/kontakt/">Kontakt</a></li><li><a href="/extra/">Extra</a></li></ul></div></div></header>
+<main><h1>Start</h1><p>Text.</p></main><footer><ul><li><a href="/a/">A</a></li><li><a href="/b/">B</a></li><li><a href="/c/">C</a></li></ul></footer></body></html>`
+
+test('the main menu is found without a nav element, ahead of a language switch, a hidden copy and the footer', { skip: CHROME ? false : 'no Chrome on this machine' }, async () => {
+  process.env.BROWSER_PATH = CHROME
+  process.env.BROWSER_NO_SANDBOX = '1'
+  try {
+    const fetchPage = async () => new Response(THEMED, { status: 200, headers: { 'content-type': 'text/html' } })
+    const entries = await withSitePage('https://themed.example/', { fetchPage }, async (page) => (await page.evaluate(MENU_SOURCE)) as MenuEntry[])
+    assert.deepEqual(entries.map((entry) => [entry.label, entry.children.map((child) => child.label)]), [['Projekt', ['Ziele', 'Team']], ['Häuser', []], ['Kontakt', []]])
   } finally {
     await closeBrowser()
     delete process.env.BROWSER_PATH

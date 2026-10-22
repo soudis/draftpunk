@@ -135,3 +135,28 @@ test('a browser that is launched here has no network of its own', { skip: CHROME
     delete process.env.BROWSER_NO_SANDBOX
   }
 })
+
+test('a page that is still parsing, and that reloads itself once, is read when it is done', { skip: CHROME ? false : 'no Chrome on this machine' }, async () => {
+  process.env.BROWSER_PATH = CHROME
+  process.env.BROWSER_NO_SANDBOX = '1'
+  let loads = 0
+  const server = await new Promise<{ url: string; close: () => void }>((resolve) => {
+    const made = http.createServer((request, response) => {
+      loads += 1
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+      response.write('<!doctype html><html><head><title>Langsam</title>')
+      // The body comes late, and the first document sends the browser to the same address again.
+      setTimeout(() => response.end(`</head><body>${loads === 1 ? '<script>setTimeout(() => location.reload(), 1800)</script>' : ''}<h1>Fertig</h1><p>Der Text ist da.</p></body></html>`), 1_200)
+    })
+    made.listen(0, '127.0.0.1', () => resolve({ url: `http://127.0.0.1:${(made.address() as { port: number }).port}`, close: () => made.close() }))
+  })
+  try {
+    const text = await withSitePage(`${server.url}/`, { fetchPage: localFetch }, async (page) => page.evaluate('document.body ? document.body.innerText : ""'))
+    assert.match(String(text), /Fertig/)
+  } finally {
+    await closeBrowser()
+    server.close()
+    delete process.env.BROWSER_PATH
+    delete process.env.BROWSER_NO_SANDBOX
+  }
+})
