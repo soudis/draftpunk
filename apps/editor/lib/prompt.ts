@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { formatCatalog, layoutCatalog, pagesByLayout, readSiteConfig } from '@schlor/generator'
+import { listReferences } from './references'
 import type { EditorMode } from './mode'
 
 // The static part comes first and never changes between requests, so a provider that
@@ -27,7 +28,6 @@ const EDIT_RULES = `You edit a housing project's website with tools. You may cha
 design/brief.md is the shared look of the whole site: colors, type, spacing, mood. It is not a log and holds no page sentences. A layout's purpose belongs in its own layout.yml, not in the brief. After you change the stylesheet, the shell, or the labels so that the shared look changes, update the brief. When asked to refine the brief, rewrite it from the stylesheet and the shell.
 
 ## Working
-- When the person names a website, call read_website for that page and again for each further page you need. Do not say you cannot open a URL.
 - Make the smallest change that does the job. To fix words or a value on a page, use edit_slot or set_slot. To change a layout or the styles a little, use edit_layout or edit_design. Send a whole page, layout, or file with write_page, write_layout, or write_design only when it is new or mostly rewritten. These tools take the exact text to replace: copy it from read_page, read_layout, or read_design.
 - To find a page, event, or place, call search_content with a short phrase, then read that one file. List pages or events only when you need every date. Do not read every file. When you need several files, request them in the same step.
 - save_picture only for a picture the person named, and call list_pictures first in case it is stored. Put a picture on a page only when the person says which page.
@@ -38,12 +38,20 @@ design/brief.md is the shared look of the whole site: colors, type, spacing, moo
 const SETUP_RULES = `You are in setup: the first conversation that decides a new site's languages, layouts, labels, event fields, look, and first content. Besides the content and design tools you may use propose_setup and accept_setup.
 
 ## Setup
-- From a URL, call read_website for that page and again for each further page, including a post or a gallery. It does not import a full archive.
+- From a URL, read the site as described under Other sites, including a post or a gallery. That does not import a full archive.
 - Propose the languages, the layouts (each with a name, a purpose, its slots, a template, and styles), the labels, the event fields, the look, and a first pass of pages (each with a slug, a layout, a title per language, and slot values). Record it with propose_setup and wait.
 - A proposal is an object: site, layouts, dropLayouts, labels, fields, look {styles, shell, brief}, nav, pages, events, places. layouts and pages follow the rules of write_layout and write_page.
 - A directive that already names a decision is acceptance for that decision: call accept_setup with that part and leave finish false. When the person accepts the whole proposal, call accept_setup with useRecorded and finish.
 - Keep the event, place, calendar, and archive layouts.
 - The first language has no address prefix. A language marked optional does not block publish.`
+
+const SITE_RULES = `## Other sites
+- When the person names a website, call site_map to find its pages, then read the pages you need. Do not say you cannot open a URL. Call read_website for a page: it returns its HTML, cut when it is long.`
+
+const BROWSER_SITE_RULES = `## Other sites
+- When the person names a website, call site_map to find its pages. Call inspect_website for how a page looks and read_page_text for what it says. Do not say you cannot open a URL.
+- Copy a look, not a site: take the colors, type, spacing, and structure, and write the layouts and styles yourself. Take a site's words or pictures only when the person says to use them.
+- When the person likes a site, call save_reference with what they like about it, so later chats can match it. read_reference reads a saved one. The saved ones are listed below.`
 
 const BROWSER_RULES = `## Looking at the result
 - After you change a layout or the styles, the tool result says what a browser found wrong on the pages: text that is hard to read, a page that scrolls sideways, pictures that did not load, words that are not visible. Fix every problem before you finish. Call check_page for a page you changed when you want to be sure of the result.`
@@ -58,7 +66,9 @@ export function systemPrompt(mode: EditorMode, root: string, now: Date = new Dat
   const site = readSiteConfig(root)
   const languages = site.languages.map((language) => `${language.id}${language.optional ? ' (optional)' : ''}`).join(', ')
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: site.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
-  const looking = features.browser ? `\n\n${BROWSER_RULES}${features.vision ? `\n${VISION_RULES}` : ''}` : ''
+  const looking = `\n\n${features.browser ? BROWSER_SITE_RULES : SITE_RULES}${features.browser ? `\n\n${BROWSER_RULES}${features.vision ? `\n${VISION_RULES}` : ''}` : ''}`
   const rules = mode === 'setup' ? `${EDIT_RULES}${looking}\n\n${SETUP_RULES}` : `${EDIT_RULES}${looking}`
-  return `${rules}\n\n# This site\nToday: ${today} (${site.timezone}).\nLanguages, first is the default: ${languages}.\n\nLayouts:\n${catalog}\n\nDesign brief:\n${brief}`
+  const references = listReferences(root)
+  const saved = references.length > 0 ? `\n\nSaved references, sites to match:\n${references.map((item) => `- ${item.host}${item.note ? ` — ${item.note}` : ''}`).join('\n')}` : ''
+  return `${rules}\n\n# This site\nToday: ${today} (${site.timezone}).\nLanguages, first is the default: ${languages}.\n\nLayouts:\n${catalog}${saved}\n\nDesign brief:\n${brief}`
 }

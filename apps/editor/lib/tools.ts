@@ -6,6 +6,12 @@ import { searchContent } from './content-search'
 import { guardDesignWrite } from './layout-guard'
 import type { EditorMode } from './mode'
 import { browserConfigured } from './browser'
+import { cached } from './web-cache'
+import { listReferences, readReference, saveReference } from './references'
+import { formatProfile, PROFILE_SOURCE, type RawProfile } from './site-profile'
+import { formatText, TEXT_SOURCE, type RawText } from './site-text'
+import { siteMap } from './site-map'
+import { SITE_VIEWPORTS, withSitePage, type FetchPage, type SiteViewport } from './web-render'
 import { replaceOnce } from './edit'
 import { slotDefAt, slotPath, valueAt, withValueAt } from './slot-edit'
 import { auditPage, pagePath, type ViewportName } from './page-audit'
@@ -189,7 +195,7 @@ function mergeSlots(existing: Record<string, unknown>, incoming: Record<string, 
   return merged
 }
 
-export function contentTools(root: string): ToolSet {
+export function contentTools(root: string, options: ToolOptions = {}): ToolSet {
   return {
     search_content: defineTool('search_content', {
       description:
@@ -459,7 +465,7 @@ export function contentTools(root: string): ToolSet {
     }),
     save_picture: defineTool('save_picture', {
       description:
-        'Download one picture the person named from a public website and store the original. Do not download every image on a page. Omit name, description, and tags to have the tool look at the picture and fill a short name, a German description, and tags. An existing file with the same name is kept unless replace is true; set replace only when the person asked to replace that picture. Call fit_picture before you put it on a page.',
+        'Download one picture the person named from a public website and store the original. Only for a picture the person owns or may use: say so if you are unsure. Do not download every image on a page. Omit name, description, and tags to have the tool look at the picture and fill a short name, a German description, and tags. An existing file with the same name is kept unless replace is true; set replace only when the person asked to replace that picture. Call fit_picture before you put it on a page.',
       input: z.object({
         url: z.string().describe('Required. Address of the picture.'),
         name: z.string().optional(),
@@ -468,7 +474,7 @@ export function contentTools(root: string): ToolSet {
         replace: z.boolean().optional(),
       }),
       execute: async ({ url, name, description, tags, replace }) => {
-        const fetched = await fetchPublicBytes(url)
+        const fetched = await fetchPublicBytes(url, options.fetchPage)
         const kind = detectPicture(fetched.body)
         if (!kind) fail(`Could not save ${url}: that file is not a JPEG, PNG, WebP, GIF, or SVG.`)
         const chosen = {
@@ -636,7 +642,15 @@ async function saveDesignFile(root: string, rel: string, content: string, verifi
   }
 }
 
-export type ToolOptions = { vision?: boolean; screenshots?: ScreenshotStore; verifier?: Verifier }
+export type ToolOptions = {
+  vision?: boolean
+  screenshots?: ScreenshotStore
+  verifier?: Verifier
+  /** Where what a site said is kept for a few hours. None keeps nothing. */
+  cacheDir?: string
+  /** How a public site is reached. The default only reaches public addresses. */
+  fetchPage?: FetchPage
+}
 
 export function designTools(root: string, options: ToolOptions = {}): ToolSet {
   const verifier = options.verifier ?? createVerifier()
@@ -648,6 +662,7 @@ export function designTools(root: string, options: ToolOptions = {}): ToolSet {
       execute: () => ({
         files: ['brief.md', 'styles.css', 'shell.njk', 'nav.yml', 'labels.yml', 'categories.yml', 'fields.yml', 'site.yml'],
         layouts: listLayoutNames(path.join(root, 'design')).map((name) => layoutLabel(root, name)),
+        references: listReferences(root).map((item) => item.host),
       }),
     }),
     list_layouts: defineTool('list_layouts', {
@@ -829,11 +844,80 @@ export function designTools(root: string, options: ToolOptions = {}): ToolSet {
           }),
         }
       : {}),
-    read_website: defineTool('read_website', {
+    site_map: defineTool('site_map', {
       description:
-        'Read one public page. Returns its HTML with scripts and style blocks removed, absolute addresses, one address per picture, mailto links for protected addresses, and a short colors-and-fonts note. A long page is cut and says so. Call it again for each further page.',
-      input: z.object({ url: z.string().describe('Required. Address of the page.') }),
-      execute: ({ url }) => readWebsite(url),
+        'List the pages of a public website: the links on its front page to the same site, with their words, and the pages in its sitemap, grouped when there are many. Use it to choose which pages to read.',
+      input: z.object({ url: z.string().describe('Required. Address of the site or of a page of it.') }),
+      execute: ({ url }) => cached(options.cacheDir, `site_map ${url}`, () => siteMap(url, options.fetchPage)),
+    }),
+    ...(browserConfigured()
+      ? {
+          inspect_website: defineTool('inspect_website', {
+            description:
+              'Open a public page in a browser and describe how it looks: colors by role (page, text, headings, links, header, footer, buttons), fonts and sizes, corners and shadows, menu, and the sections from top to bottom with their colors and sizes. Use it for a site whose design the person likes or wants matched. It does not give the page’s words: use read_page_text for those. Keep a site the person likes with save_reference.',
+            input: z.object({
+              url: z.string().describe('Required. Address of the page.'),
+              view: z.enum(['desktop', 'mobile']).optional().describe('Optional. Default desktop.'),
+            }),
+            execute: async ({ url, view }) => {
+              const viewport: SiteViewport = view ?? 'desktop'
+              const wantsPicture = options.vision === true
+              const look = async () =>
+                withSitePage(url, { viewport, fetchPage: options.fetchPage }, async (page, final) => {
+                  const raw = (await page.evaluate(PROFILE_SOURCE)) as RawProfile
+                  const text = formatProfile(final, raw, SITE_VIEWPORTS[viewport].height)
+                  if (!wantsPicture) return { text, picture: undefined }
+                  const height = Math.min(2400, Number(await page.evaluate('document.documentElement.scrollHeight')))
+                  const picture = await page.screenshot({ type: 'jpeg', quality: 70, fullPage: true, clip: { x: 0, y: 0, width: SITE_VIEWPORTS[viewport].width, height } })
+                  return { text, picture }
+                })
+              const result = wantsPicture ? await look() : { text: await cached(options.cacheDir, `inspect ${viewport} ${url}`, async () => (await look()).text), picture: undefined }
+              const marker = result.picture ? ` ${screenshotMarker(screenshots.add(result.picture))}` : ''
+              return `${result.text}${marker}`
+            },
+          }),
+          read_page_text: defineTool('read_page_text', {
+            description:
+              'Open a public page in a browser and read its text as markdown: headings, paragraphs, lists, links with their addresses, and pictures with their addresses. Menus, headers and footers are left out. Email addresses that the page hides from robots are decoded. A long page comes back in pieces; the reply names the offset to continue from.',
+            input: z.object({
+              url: z.string().describe('Required. Address of the page.'),
+              offset: z.number().int().min(0).optional().describe('Optional character offset to continue a long page.'),
+            }),
+            execute: async ({ url, offset }) => {
+              const text = await cached(options.cacheDir, `text ${url}`, () =>
+                withSitePage(url, { fetchPage: options.fetchPage }, async (page, final) => formatText(final, (await page.evaluate(TEXT_SOURCE)) as RawText)),
+              )
+              return windowText(text, offset ?? 0, 14_000)
+            },
+          }),
+          save_reference: defineTool('save_reference', {
+            description:
+              'Keep a site the person likes as a reference: how it looks, and what they like about it, in design/references. Later chats read it with read_reference to match that look. Call it after inspect_website when the person says they like the site or want something like it.',
+            input: z.object({
+              url: z.string().describe('Required. Address of the page that was inspected.'),
+              note: z.string().min(3).describe('Required. What the person likes about it, in their words, and which parts to copy or leave.'),
+            }),
+            execute: async ({ url, note }) => {
+              const profile = await cached(options.cacheDir, `inspect desktop ${url}`, () =>
+                withSitePage(url, { fetchPage: options.fetchPage }, async (page, final) => formatProfile(final, (await page.evaluate(PROFILE_SOURCE)) as RawProfile)),
+              )
+              const host = saveReference(root, { url, note, profile })
+              return finish(root, `Saved design/references/${host}.md.`)
+            },
+          }),
+        }
+      : {
+          read_website: defineTool('read_website', {
+            description:
+              'Read one public page. Returns its HTML with scripts and style blocks removed, absolute addresses, one address per picture, mailto links for protected addresses, and a short colors-and-fonts note. A long page is cut and says so. Call it again for each further page.',
+            input: z.object({ url: z.string().describe('Required. Address of the page.') }),
+            execute: ({ url }) => readWebsite(url, options.fetchPage),
+          }),
+        }),
+    read_reference: defineTool('read_reference', {
+      description: 'Read a saved reference: a site the person likes, how it looks, and what they like about it. The references are listed in the system prompt.',
+      input: z.object({ site: z.string().describe('Required. The site name, such as schlor.org.') }),
+      execute: ({ site }) => readReference(root, site),
     }),
   }
 }
@@ -877,6 +961,6 @@ export function setupTools(root: string): ToolSet {
 }
 
 export function toolsFor(mode: EditorMode, root: string, options: ToolOptions = {}): ToolSet {
-  const edit = { ...contentTools(root), ...designTools(root, options) }
+  const edit = { ...contentTools(root, options), ...designTools(root, options) }
   return mode === 'setup' ? { ...edit, ...setupTools(root) } : edit
 }

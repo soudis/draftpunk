@@ -67,11 +67,11 @@ export type AgentRun = {
 }
 
 /** The settings the chat route and the eval runner both give to streamText. */
-export function agentRun(mode: EditorMode, root: string, options: { vision?: boolean } = {}): AgentRun {
+export function agentRun(mode: EditorMode, root: string, options: { vision?: boolean; cacheDir?: string } = {}): AgentRun {
   const screenshots = new ScreenshotStore()
   return {
     system: systemPrompt(mode, root, new Date(), { browser: browserConfigured(), vision: options.vision }),
-    tools: toolsFor(mode, root, { vision: options.vision, screenshots, verifier: createVerifier() }),
+    tools: toolsFor(mode, root, { vision: options.vision, screenshots, verifier: createVerifier(), cacheDir: options.cacheDir }),
     stopWhen: stepCountIs(STEP_LIMIT),
     prepareStep: ({ stepNumber, messages }) => ({
       messages: attachScreenshots(pruneHistory(messages), screenshots),

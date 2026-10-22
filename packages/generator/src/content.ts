@@ -344,6 +344,7 @@ export function designFilePath(root: string, rel: string): string {
     normalized === 'setup.yml' ||
     normalized === 'proposal.yml' ||
     normalized === 'labels.yml' ||
+    /^references\/[a-z0-9]+(?:[.-][a-z0-9]+)*\.md$/.test(normalized) ||
     /^layouts\/[a-z0-9]+(?:-[a-z0-9]+)*\/(?:layout\.yml|template\.njk|style\.css)$/.test(normalized)
   if (!allowed) throw new Error(`Design path is not allowed: ${rel}`)
   const file = path.join(root, 'design', normalized)

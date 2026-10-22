@@ -76,6 +76,10 @@ _Avoid_: field, section, content structure
 A short interface word that belongs to the design, such as a menu entry or "Read more", kept in each language in one file and shown by templates. It is not page content.
 _Avoid_: string, translation, copy
 
+**Reference**:
+A site the person likes, kept with how it looks (colors by role, type, shape, the sections in order) and what they like about it, so later chats can match it. It describes a look and holds no content of the site.
+_Avoid_: inspiration, template, import
+
 **Catalog**:
 What the agent sees of the site's layouts: each one's name, purpose, slot signature, and the pages that use it. It is built from the layout folders and is how a layout is found and reused.
 _Avoid_: registry, library

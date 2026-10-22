@@ -1,10 +1,11 @@
+import path from 'node:path'
 import { convertToModelMessages, streamText, type UIMessage } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { commitAll } from '@/lib/git'
 import { chatErrorText } from '@/lib/api-error'
 import { attachThoughtSignatures, tapThoughtSignatures } from '@/lib/gemini'
 import { sessionFromRequest } from '@/lib/session'
-import { siteRoot } from '@/lib/site'
+import { chatDatabasePath, siteRoot } from '@/lib/site'
 import { agentRun } from '@/lib/agent'
 import { parseMode } from '@/lib/mode'
 import { nameFromFirstInput } from '@/lib/chat-name'
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
   let step = 0
   const result = streamText({
     model: provider.chatModel(modelSettings.model),
-    ...agentRun(mode, root, { vision: modelSettings.vision }),
+    ...agentRun(mode, root, { vision: modelSettings.vision, cacheDir: path.join(path.dirname(chatDatabasePath()), 'web-cache') }),
     messages: await convertToModelMessages(body.messages),
     abortSignal: request.signal,
     onStepFinish: (finished) => {

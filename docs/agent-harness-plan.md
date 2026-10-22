@@ -76,6 +76,15 @@ Phase 4 is built (looking at the result):
 - After every design write (`write_layout`, `write_design`, `edit_layout`, `edit_design`, `replace_layout`) the tool result also carries what the browser found on the pages that show the change (the pages of that layout, or the home page and one page per layout for a shared change). A problem is reported once per request. A browser that fails never fails the change.
 - `preview_page` gives a vision model a screenshot (JPEG, whole page to 2400px). It reaches the model as a user message for the next step only, then is gone, so it never stays in the history or the stored chat. Whether a model reads pictures comes from a list of documented models, or `LLM_VISION=1` or `0`.
 
+Phase 5 is built (reading other websites):
+- With a browser: `inspect_website` describes how a public page looks in about 300–600 tokens (colors by role, fonts and sizes, corners and shadows, content width, the menu, and the sections from top to bottom with their colors and sizes). A vision model also gets a picture of the whole page for the next step. `read_page_text` gives the page's words as markdown with link and picture addresses, after scripts have run, so hidden email addresses and lazy pictures are in it, and menus, footers and cookie banners are left out. `save_reference` and `read_reference` keep a site the person likes in `design/references/<site>.md`, and the system prompt lists them.
+- Without a browser: `read_website` as before. `site_map` (links to the same site and the sitemap, grouped when long) works either way.
+- A page is cached for six hours beside the chat database, so asking again does not render it again.
+- The reader cannot reach a private address. `safeFetch` checks the address at the moment the socket connects, which closes the gap where a name answers with a public address first and a private one later. The browser never touches the network itself: every request it makes goes through that fetch, with limits on the number and size of requests, no POST, no WebSocket, and no service workers. It sends a normal browser user agent.
+- `save_picture` now says to save only a picture the person owns or may use, and the prompt says to copy a look, not a site's words or pictures.
+- Tried on schlor.org and two other public sites (5–10 seconds a page).
+- Not built: the `import_pages` tool of the plan. The importer package knows one WordPress site; a general bulk import is better built from `site_map` and `read_page_text` once the agent has been seen to use them.
+
 Not built yet: reusable sections shared by several layouts (the starter layouts repeat their markup). The importer package writes the new page format but only knows the old fixed layouts.
 
 ## 3. Phases

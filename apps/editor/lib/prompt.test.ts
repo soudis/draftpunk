@@ -30,7 +30,7 @@ test('setup adds its own rules and keeps the editing rules', () => {
   const root = site()
   const setup = systemPrompt('setup', root)
   assert.match(setup, /propose_setup/)
-  assert.match(setup, /call read_website for that page and again for each further page/)
+  assert.match(setup, /read the site as described under Other sites/)
   assert.match(setup, /A layout holds no words of its own/)
 })
 

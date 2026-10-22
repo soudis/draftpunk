@@ -1,42 +1,10 @@
-import { lookup } from 'node:dns/promises'
-import { BlockList, isIP } from 'node:net'
+import { assertPublicUrl, safeFetch, resolvePublic, type Resolve } from './safe-fetch'
 
-const blocked = new BlockList()
-for (const [address, prefix] of [
-  ['0.0.0.0', 8],
-  ['10.0.0.0', 8],
-  ['100.64.0.0', 10],
-  ['127.0.0.0', 8],
-  ['169.254.0.0', 16],
-  ['172.16.0.0', 12],
-  ['192.0.0.0', 24],
-  ['192.0.2.0', 24],
-  ['192.168.0.0', 16],
-  ['198.18.0.0', 15],
-  ['198.51.100.0', 24],
-  ['203.0.113.0', 24],
-  ['224.0.0.0', 4],
-  ['240.0.0.0', 4],
-] as const) {
-  blocked.addSubnet(address, prefix, 'ipv4')
-}
-for (const [address, prefix] of [
-  ['::', 128],
-  ['::1', 128],
-  ['2001:db8::', 32],
-  ['fc00::', 7],
-  ['fe80::', 10],
-  ['ff00::', 8],
-] as const) {
-  blocked.addSubnet(address, prefix, 'ipv6')
-}
+export { assertPublicUrl }
 
-type Resolve = (hostname: string) => Promise<{ address: string }[]>
 type FetchPage = (url: string, init: RequestInit) => Promise<Response>
 
-const resolvePublic: Resolve = (hostname) => lookup(hostname, { all: true, verbatim: true })
-
-export async function readWebsite(input: string, fetchPage: FetchPage = fetch, resolve: Resolve = resolvePublic): Promise<string> {
+export async function readWebsite(input: string, fetchPage: FetchPage = safeFetch, resolve: Resolve = resolvePublic): Promise<string> {
   const page = await fetchPublic(input, fetchPage, resolve, 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.1')
   if (!isHtml(page.type, page.body)) return `Could not read ${page.url}: the response is not an HTML page.`
   const stylesheets = stylesheetLinks(page.body, page.url).slice(0, 4)
@@ -52,22 +20,6 @@ export async function readWebsite(input: string, fetchPage: FetchPage = fetch, r
     }
   }
   return presentPage(page.url, page.body, css.join('\n'))
-}
-
-export async function assertPublicUrl(input: string, resolve: Resolve = resolvePublic): Promise<URL> {
-  const trimmed = input.trim()
-  const url = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`)
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error(`${input} is not a public website.`)
-  if (url.username || url.password) throw new Error(`${input} is not a public website.`)
-  if (url.port && url.port !== '80' && url.port !== '443') throw new Error(`${input} is not a public website.`)
-  const host = url.hostname.replace(/^\[|\]$/g, '').toLowerCase()
-  if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) {
-    throw new Error(`${url.origin} is not a public website.`)
-  }
-  const addresses = isIP(host) ? [{ address: host }] : await resolve(host).catch(() => [])
-  if (addresses.length === 0) throw new Error(`Could not resolve ${host}.`)
-  if (addresses.some((item) => addressBlocked(item.address))) throw new Error(`${url.origin} is not a public website.`)
-  return url
 }
 
 const PAGE_HTML_CAP = 80_000
@@ -119,13 +71,6 @@ async function fetchPublic(input: string, fetchPage: FetchPage, resolve: Resolve
     return { url: current.href, type: response.headers.get('content-type') ?? '', body: await readLimited(response, 350_000) }
   }
   throw new Error(`Could not read ${input}: too many redirects.`)
-}
-
-function addressBlocked(address: string): boolean {
-  const mapped = address.toLowerCase().startsWith('::ffff:') ? address.slice(7) : address
-  if (isIP(mapped) === 4) return blocked.check(mapped, 'ipv4')
-  if (isIP(address) === 6) return blocked.check(address, 'ipv6')
-  return true
 }
 
 function stylesheetLinks(html: string, pageUrl: string): string[] {
@@ -372,7 +317,7 @@ function codePoint(value: number): string {
 
 export async function fetchPublicBytes(
   input: string,
-  fetchPage: FetchPage = fetch,
+  fetchPage: FetchPage = safeFetch,
   resolve: Resolve = resolvePublic,
   max = 8_000_000,
 ): Promise<{ url: string; type: string; body: Uint8Array }> {
