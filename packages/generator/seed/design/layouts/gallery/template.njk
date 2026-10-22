@@ -1,12 +1,12 @@
 {% extends "shell.njk" %}
 {% block body %}
-<header class="mx-auto max-w-5xl px-6 pt-12">
+<header class="mx-auto max-w-content px-6 pt-12">
   <h1 class="font-serif text-4xl text-heading">{{ title }}</h1>
   {% if date %}<p class="mt-2 text-sm text-muted">{{ date }}</p>{% endif %}
 </header>
-{% if slots.body %}<div class="prose mx-auto mt-8 max-w-3xl px-6">{{ slots.body }}</div>{% endif %}
+{% if slots.body %}<div class="prose mx-auto mt-8 max-w-text px-6">{{ slots.body }}</div>{% endif %}
 {% if slots.groups and slots.groups.length %}
-<section class="mx-auto max-w-5xl px-6 py-12">
+<section class="mx-auto max-w-content px-6 py-12">
   {% for group in slots.groups %}
   <h2 class="mt-10 font-serif text-2xl text-heading">{{ group.title }}</h2>
   <ul class="mt-4 grid gap-4 md:grid-cols-3">

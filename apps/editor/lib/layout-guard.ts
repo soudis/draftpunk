@@ -35,6 +35,10 @@ export function designContentRefusal(rel: string, content: string, pages: NamedP
   if (/\/media\//.test(content)) {
     return `design/${normalized} holds a picture address. Put the picture on the page in an image slot, and show it with {{ slots.name }}. A design file keeps the structure and the look.`
   }
+  const external = externalResource(content, type)
+  if (external) {
+    return `design/${normalized} loads ${external} from another host. A visitor's browser would contact it and send their address to a third party, which this site does not allow. Keep the file in the site: save_picture for a picture, add_font for a font. A plain link to another site is fine.`
+  }
   if (type === 'style') {
     const text = cssText(content)
     return text ? `design/${normalized} holds text in a content rule (“${text}”). Words belong in a slot or a label.` : null
@@ -60,6 +64,49 @@ function namesPage(content: string, page: NamedPage): boolean {
 function hasToken(hay: string, token: string): boolean {
   const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return new RegExp(`(?:^|[^a-z0-9])${escaped}(?:[^a-z0-9]|$)`).test(hay)
+}
+
+const EXTERNAL = /^\s*(?:https?:)?\/\//i
+const LINK_THAT_DOES_NOT_LOAD = /\b(?:canonical|alternate|author|license|me|next|prev|help)\b/i
+
+function cssExternal(css: string): string | null {
+  const stripped = css.replace(/\/\*[\s\S]*?\*\//g, '')
+  const url = /url\(\s*(["']?)\s*((?:https?:)?\/\/[^)"'\s]+)/i.exec(stripped)
+  if (url) return url[2]
+  const imported = /@import\s+["']\s*((?:https?:)?\/\/[^"'\s]+)/i.exec(stripped)
+  return imported ? imported[1] : null
+}
+
+/** An address on another host that a file would load: a stylesheet, script, font, picture, video, or frame. A link is not a load. */
+export function externalResource(content: string, kind: 'template' | 'style'): string | null {
+  if (kind === 'style') return cssExternal(content)
+  const template = content.replace(/\{#[\s\S]*?#\}/g, '')
+  for (const block of template.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)) {
+    const found = cssExternal(block[1])
+    if (found) return found
+  }
+  for (const tag of template.matchAll(/<([a-z][a-z0-9-]*)\b([^>]*)>/gi)) {
+    const name = tag[1].toLowerCase()
+    const attrs = tag[2]
+    const value = (attribute: string) => new RegExp(`(?:^|\\s)${attribute}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, 'i').exec(attrs)?.[2]
+    const style = value('style')
+    if (style) {
+      const found = cssExternal(style)
+      if (found) return found
+    }
+    const loading: string[] = []
+    if (['img', 'script', 'iframe', 'video', 'audio', 'source', 'track', 'embed', 'object', 'input'].includes(name)) loading.push('src', 'srcset', 'data', 'poster')
+    if (name === 'video') loading.push('poster')
+    if (name === 'link' && !LINK_THAT_DOES_NOT_LOAD.test(value('rel') ?? '')) loading.push('href')
+    if (name === 'image' || name === 'use') loading.push('href', 'xlink:href')
+    for (const attribute of loading) {
+      const found = value(attribute)
+      if (!found || found.includes('{{')) continue
+      const first = found.split(',').map((part) => part.trim().split(/\s+/)[0]).find((url) => EXTERNAL.test(url))
+      if (first) return first
+    }
+  }
+  return null
 }
 
 const READER_ATTRIBUTES = ['alt', 'title', 'aria-label', 'placeholder', 'value']

@@ -345,6 +345,7 @@ export function designFilePath(root: string, rel: string): string {
     normalized === 'proposal.yml' ||
     normalized === 'labels.yml' ||
     normalized === 'tokens.yml' ||
+    normalized === 'fonts.yml' ||
     normalized === 'rules.md' ||
     /^references\/[a-z0-9]+(?:[.-][a-z0-9]+)*\.md$/.test(normalized) ||
     /^layouts\/[a-z0-9]+(?:-[a-z0-9]+)*\/(?:layout\.yml|template\.njk|style\.css)$/.test(normalized)

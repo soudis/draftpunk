@@ -194,7 +194,6 @@ export async function auditPage(
         missing.push(new URL(route.request().url()).pathname)
         return route.fulfill({ status: 404, contentType: 'text/plain', body: 'Not found' })
       }
-      if (decision.kind === 'allow') return route.continue()
       return route.abort()
     })
     await page.goto(`${PREVIEW_ORIGIN}${urlPath}`, { waitUntil: 'load', timeout: 15_000 })

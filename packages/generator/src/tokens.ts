@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { parse } from 'yaml'
+import { parse, stringify } from 'yaml'
 
 export type Tokens = {
   colors: Record<string, string>
@@ -129,4 +129,9 @@ export function tokenSummary(tokens: Tokens): string {
   }
   const lines = [part('Colors', tokens.colors), part('Fonts', tokens.fonts), part('Radius', tokens.radius), part('Widths', tokens.widths)].filter(Boolean)
   return lines.join('\n')
+}
+
+export function writeTokens(root: string, tokens: Tokens): void {
+  const plain = Object.fromEntries(TOKEN_GROUPS.filter((group) => Object.keys(tokens[group]).length > 0).map((group) => [group, tokens[group]]))
+  fs.writeFileSync(path.join(root, 'design', 'tokens.yml'), stringify(plain, { lineWidth: 0 }))
 }

@@ -1,7 +1,7 @@
 {% extends "shell.njk" %}
 {% block body %}
 <section class="bg-dark px-6 py-16 text-on-dark">
-  <div class="mx-auto grid max-w-5xl gap-8 md:grid-cols-2 md:items-center">
+  <div class="mx-auto grid max-w-content gap-8 md:grid-cols-2 md:items-center">
     <div>
       <h1 class="font-serif text-5xl">{{ title }}</h1>
       {% if slots.lede %}<p class="mt-4 text-xl">{{ slots.lede }}</p>{% endif %}
@@ -9,9 +9,9 @@
     {% if slots.hero_image %}<img class="max-h-80 w-full object-cover" src="{{ slots.hero_image }}" alt="">{% endif %}
   </div>
 </section>
-{% if slots.body %}<div class="prose mx-auto mt-8 max-w-3xl px-6">{{ slots.body }}</div>{% endif %}
+{% if slots.body %}<div class="prose mx-auto mt-8 max-w-text px-6">{{ slots.body }}</div>{% endif %}
 {% if slots.cards and slots.cards.length %}
-<section class="mx-auto max-w-5xl px-6 py-12">
+<section class="mx-auto max-w-content px-6 py-12">
   <ul class="grid gap-6 md:grid-cols-3">
     {% for card in slots.cards %}
     <li class="border border-border">
@@ -26,16 +26,16 @@
 </section>
 {% endif %}
 {% if slots.band.title %}
-<section class="mx-auto max-w-5xl px-6 py-12">
+<section class="mx-auto max-w-content px-6 py-12">
   <div class="bg-accent px-6 py-8 text-on-accent">
     <h2 class="font-serif text-3xl">{{ slots.band.title }}</h2>
-    {% if slots.band.text %}<p class="mt-3 max-w-3xl">{{ slots.band.text }}</p>{% endif %}
+    {% if slots.band.text %}<p class="mt-3 max-w-text">{{ slots.band.text }}</p>{% endif %}
     {% if slots.band.href %}<a class="mt-4 inline-block bg-surface px-4 py-2 text-on-surface" href="{{ slots.band.href }}">{{ slots.band.label or slots.band.href }}</a>{% endif %}
   </div>
 </section>
 {% endif %}
 {% if news and news.length %}
-<section class="mx-auto max-w-5xl px-6 py-12">
+<section class="mx-auto max-w-content px-6 py-12">
   <h2 class="font-serif text-3xl text-heading">{{ labels.news }}</h2>
   <ul class="mt-4 space-y-3">
     {% for item in news %}
@@ -45,7 +45,7 @@
 </section>
 {% endif %}
 {% if upcoming and upcoming.length %}
-<section class="mx-auto max-w-5xl px-6 py-12">
+<section class="mx-auto max-w-content px-6 py-12">
   <h2 class="font-serif text-3xl text-heading">{{ labels.upcoming }}</h2>
   <ul class="mt-4 space-y-3">
     {% for item in upcoming %}

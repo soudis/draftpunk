@@ -254,7 +254,7 @@ Glossary terms to add or change when built: **Layout** (now a folder with a slot
 
 Decided in a grilling session; ADRs 0015 and 0016 and the glossary terms Tips and Baseline record the reasons.
 
-**Stage A: the baseline** (first, because setup builds on it)
+**Stage A: the baseline** (built; see the end of this section)
 - The generator adds picture attributes, `sitemap.xml`, `robots.txt`, `404.html`, font preload, canonical, descriptions and Open Graph tags.
 - The starter shell and styles self-host Source Sans 3 and Source Serif 4, add `@view-transition`, a picture fade-in, a skip link, visible focus, reduced-motion handling, and a phone menu. No external host anywhere.
 - The layout guard refuses external resources in templates, shell and stylesheets. Outbound links stay allowed.
@@ -268,3 +268,12 @@ Decided in a grilling session; ADRs 0015 and 0016 and the glossary terms Tips an
 
 **Stage D: the editor UI**
 - In order: the top bar (site name, page switcher, desktop and phone preview, Edit Mode in a preview toolbar, one strong Publish with a change count, Revert in a menu) and the composer; then the chat (clearer messages, tool steps folded into one line, an Undo on each change); then the Settings drawer and a two-tab phone layout. Hand-written CSS with variables, light and dark.
+
+### Stage A is built
+
+- The generator adds `loading`, `decoding`, `width` and `height` to every picture (the picture in the header and the first one after it stay eager; an attribute the design wrote is kept), a description, Open Graph, canonical and theme-color tags (a tag the design wrote is kept), font preload links, `robots.txt`, `404.html`, and `sitemap.xml` and canonical addresses when `site.yml` has a `url`.
+- Fonts are `design/fonts.yml` plus woff2 files in `media/fonts`; the generator makes the `@font-face` rules. The starter has Source Sans 3 (400, 700) and Source Serif 4 (400, 600), about 73 KB, and its shell loads nothing from another host. A skip link, a phone menu (a checkbox, no script), visible focus, reduced-motion handling, a color behind loading pictures, and `@view-transition` are in the starter.
+- The guard refuses a template, the shell or a stylesheet that loads from another host (outbound links, data addresses and canonical or alternate links are fine). The preview browser reaches no other host either.
+- `add_font` downloads an open-licence family (OFL, Apache, MIT, Ubuntu) from the Fontsource catalog on the server, once, into the site, registers it, and can set the font token. Tried against the live catalog with Lora: two files of 21 KB, loaded from the site, with no outside request. A font token whose family has no file is reported.
+- Setup proposals may carry `site.url`. The prompt tells the agent what every site has.
+- Not done in this stage: asking for the published address during setup (it belongs to the scripted questions in stage B).

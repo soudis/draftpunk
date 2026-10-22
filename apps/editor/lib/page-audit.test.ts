@@ -45,7 +45,7 @@ test('words that are on the page but not visible are named, ignoring case and sp
   assert.deepEqual(hiddenWords(undefined, ''), [])
 })
 
-test('a preview request is served from the generated site, and nothing else leaves the machine', () => {
+test('a preview request is served from the generated site, and nothing else is reached, fonts included', () => {
   const dist = fs.mkdtempSync(path.join(os.tmpdir(), 'route-'))
   fs.mkdirSync(path.join(dist, 'assets'))
   fs.writeFileSync(path.join(dist, 'index.html'), '<p>x</p>')
@@ -54,7 +54,7 @@ test('a preview request is served from the generated site, and nothing else leav
   assert.equal(decideRoute(dist, `${PREVIEW_ORIGIN}/assets/styles.css`).kind, 'file')
   assert.deepEqual(decideRoute(dist, `${PREVIEW_ORIGIN}/nope.png`), { kind: 'missing' })
   assert.deepEqual(decideRoute(dist, `${PREVIEW_ORIGIN}/..%2f..%2fetc/passwd`), { kind: 'missing' })
-  assert.deepEqual(decideRoute(dist, 'https://fonts.googleapis.com/css2?family=X'), { kind: 'allow' })
+  assert.deepEqual(decideRoute(dist, 'https://fonts.googleapis.com/css2?family=X'), { kind: 'block' })
   assert.deepEqual(decideRoute(dist, 'http://fonts.googleapis.com/css2'), { kind: 'block' })
   assert.deepEqual(decideRoute(dist, 'https://tracker.example/pixel.gif'), { kind: 'block' })
   assert.deepEqual(decideRoute(dist, 'http://127.0.0.1:3000/edit'), { kind: 'block' })

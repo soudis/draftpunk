@@ -1,8 +1,8 @@
 {% extends "shell.njk" %}
 {% block body %}
-<header class="mx-auto max-w-5xl px-6 pt-12">
+<header class="mx-auto max-w-content px-6 pt-12">
   <h1 class="font-serif text-4xl text-heading">{{ title }}</h1>
   {% if date %}<p class="mt-2 text-sm text-muted">{{ date }}</p>{% endif %}
 </header>
-<div class="prose mx-auto mt-8 max-w-3xl px-6">{{ slots.body }}</div>
+<div class="prose mx-auto mt-8 max-w-text px-6">{{ slots.body }}</div>
 {% endblock %}

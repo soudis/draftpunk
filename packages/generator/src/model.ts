@@ -11,6 +11,8 @@ export type SiteLanguage = {
 export type SiteConfig = {
   name: string
   id: string
+  /** The address of the published site, such as https://schlor.org. Needed for the sitemap and canonical addresses. */
+  url?: string
   timezone: string
   languages: SiteLanguage[]
 }
@@ -51,6 +53,7 @@ export function readSiteConfig(root: string): SiteConfig {
   const raw = readYamlFile<{
     name?: string
     id?: string
+    url?: string
     timezone?: string
     languages?: { id?: string; label?: string; optional?: boolean }[]
   }>(path.join(root, 'design', 'site.yml'), {})
@@ -70,10 +73,16 @@ export function readSiteConfig(root: string): SiteConfig {
   const fromDir = path.basename(root).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
   return {
     name: String(raw.name ?? '').trim() || 'Website',
+    url: siteUrl(raw.url),
     id: SITE_ID.test(requested) ? requested : SITE_ID.test(fromDir) ? fromDir : 'site',
     timezone: validTimeZone(String(raw.timezone ?? '').trim() || 'Europe/Vienna'),
     languages: chosen,
   }
+}
+
+function siteUrl(value: unknown): string | undefined {
+  const text = String(value ?? '').trim().replace(/\/+$/, '')
+  return /^https?:\/\/[a-z0-9.-]+(?::\d+)?$/i.test(text) ? text : undefined
 }
 
 export function languageIds(root: string): string[] {

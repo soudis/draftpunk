@@ -33,6 +33,8 @@ import {
   type SiteConfig,
 } from './model'
 import { listPageSlugs, pageHasLanguage, readPage, writePage, type PageFile } from './pages'
+import { describe, enhanceHead, enhancePictures, robotsTxt, sitemapXml, type PageMeta } from './baseline'
+import { fontFaceCss, fontPreloadLinks, readFonts } from './fonts'
 import { resolveSlots } from './slots'
 import { readTokens, tokensCss } from './tokens'
 
@@ -84,7 +86,8 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
 
   fs.mkdirSync(outDir, { recursive: true })
   copyMedia(path.join(root, 'media'), path.join(outDir, 'media'))
-  buildCss(designDir, path.join(outDir, 'assets', 'styles.css'))
+  const faces = readFonts(root)
+  buildCss(designDir, path.join(outDir, 'assets', 'styles.css'), fontFaceCss(faces))
 
   const navFile = readYaml<NavFile | NavItem[]>(path.join(designDir, 'nav.yml'), [])
   const menu = Array.isArray(navFile) ? navFile : (navFile.menu ?? [])
@@ -101,24 +104,52 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
   const homeNews = (selected.length > 0 ? selected : news.slice(0, 3)).map((page) => page.slug)
 
   const fields = readEventFields(root)
+  const preload = fontPreloadLinks(faces)
+  const themeColor = readTokens(root).colors.primary
+  const written: string[] = []
+  const put = (urlPath: string, html: string, meta: PageMeta) => {
+    writeHtml(outDir, urlPath, html, hints, (shown) => enhanceHead(enhancePictures(shown, root), meta, site, { preload, themeColor }))
+    written.push(urlPath)
+  }
   let pageCount = 0
   for (const language of site.languages) {
     const lang = language.id
     env.addGlobal('labels', readLabels(root, lang))
     for (const page of pages.filter((item) => item.lang === lang)) {
       const url = pageUrl(page.slug, lang, site)
-      writeHtml(outDir, url, renderPage(env, designDir, page, lang, site, menu, footer, pages, homeNews, events, places, hints), hints)
+      put(url, renderPage(env, designDir, page, lang, site, menu, footer, pages, homeNews, events, places, hints), {
+        title: page.title,
+        description: pageDescription(designDir, page, lang),
+        lang,
+        path: url,
+      })
       pageCount += 1
     }
-    writeHtml(outDir, routePath('/blog/', lang, site), renderArchive(env, lang, site, menu, footer, pages, hints), hints)
-    writeHtml(outDir, routePath('/kalender/', lang, site), renderCalendar(env, lang, site, menu, footer, events, places, hints), hints)
+    const blog = routePath('/blog/', lang, site)
+    put(blog, renderArchive(env, lang, site, menu, footer, pages, hints), { title: heading(lang, 'Aktuelles', 'News'), lang, path: blog })
+    const calendar = routePath('/kalender/', lang, site)
+    put(calendar, renderCalendar(env, lang, site, menu, footer, events, places, hints), { title: heading(lang, 'Kalender', 'Calendar'), lang, path: calendar })
     for (const event of events) {
-      writeHtml(outDir, eventUrl(event.slug, lang, site), renderEvent(env, event, lang, site, fields, menu, footer, places, hints), hints)
+      const eventPath = eventUrl(event.slug, lang, site)
+      put(eventPath, renderEvent(env, event, lang, site, fields, menu, footer, places, hints), {
+        title: event.title[lang] || event.slug,
+        description: describe(renderContent(event.body[lang] || '')),
+        lang,
+        path: eventPath,
+      })
     }
     if (events.length > 0) {
-      writeHtml(outDir, routePath('/events/', lang, site), renderEventIndex(env, lang, site, menu, footer, events, hints), hints)
+      const index = routePath('/events/', lang, site)
+      put(index, renderEventIndex(env, lang, site, menu, footer, events, hints), { title: heading(lang, 'Termine', 'Events'), lang, path: index })
     }
   }
+
+  env.addGlobal('labels', readLabels(root, defaultLang))
+  writeHtml(outDir, '/404.html', renderNotFound(env, defaultLang, site, menu, footer, hints), hints, (shown) =>
+    enhanceHead(enhancePictures(shown, root), { title: readLabels(root, defaultLang).not_found_title ?? '404', lang: defaultLang, path: '/404.html' }, { name: site.name }, { preload, themeColor }),
+  )
+  fs.writeFileSync(path.join(outDir, 'robots.txt'), robotsTxt(site))
+  if (site.url) fs.writeFileSync(path.join(outDir, 'sitemap.xml'), sitemapXml({ url: site.url }, written))
 
   const icalEvents = events.flatMap((event) =>
     event.dates.flatMap((date, index) => {
@@ -272,6 +303,37 @@ function renderPage(
 /** Mark the page with its layout, so the layout's own styles apply to it and to nothing else. */
 function withLayoutAttribute(html: string, layout: string): string {
   return html.replace(/<body\b([^>]*)>/i, (_all, attrs: string) => `<body${attrs} data-layout="${layout}">`)
+}
+
+function renderNotFound(env: nunjucks.Environment, lang: Lang, site: SiteConfig, nav: NavItem[], footer: NavItem[], hints: boolean): string {
+  const has = () => false
+  return withLayoutAttribute(
+    env.render(
+      layoutTemplatePath('notfound'),
+      baseContext(((env.getGlobal('labels') as Record<string, string> | undefined)?.not_found_title) ?? '404', lang, site, nav, footer, () => '/404.html', has, {}),
+    ),
+    'notfound',
+  )
+}
+
+const DESCRIPTION_SLOTS = ['lede', 'summary', 'intro', 'description', 'teaser']
+
+/** What a page says about itself in a line: its lede, or else the start of its text. */
+function pageDescription(designDir: string, page: PageView, lang: Lang): string {
+  if (!layoutExists(designDir, page.layout)) return ''
+  const schema = readLayout(designDir, page.layout).slots
+  const text = (name: string): string => {
+    const value = page.file.slots[name]
+    if (!value || typeof value !== 'object') return typeof value === 'string' ? value : ''
+    const found = (value as Record<string, unknown>)[lang]
+    return typeof found === 'string' ? found : ''
+  }
+  for (const name of DESCRIPTION_SLOTS) {
+    const def = schema[name]
+    if (def && (def.type === 'text' || def.type === 'markdown') && text(name).trim()) return describe(def.type === 'markdown' ? renderContent(text(name)) : text(name))
+  }
+  const body = Object.entries(schema).find(([name, def]) => def.type === 'markdown' && text(name).trim())
+  return body ? describe(renderContent(text(body[0]))) : ''
 }
 
 function renderArchive(env: nunjucks.Environment, lang: Lang, site: SiteConfig, nav: NavItem[], footer: NavItem[], pages: PageView[], hints: boolean): string {
@@ -525,11 +587,11 @@ function textFor(values: Record<string, string>, lang: string): string {
   return values[lang]?.trim() || Object.values(values).find((value) => value?.trim()) || ''
 }
 
-function writeHtml(outDir: string, urlPath: string, html: string, hints: boolean): void {
+function writeHtml(outDir: string, urlPath: string, html: string, hints: boolean, post: (html: string) => string = (shown) => shown): void {
   const rel = urlPath.endsWith('/') ? `${urlPath}index.html` : urlPath
   const file = path.join(outDir, rel)
   fs.mkdirSync(path.dirname(file), { recursive: true })
-  fs.writeFileSync(file, hints ? revealContentHints(html) : html)
+  fs.writeFileSync(file, post(hints ? revealContentHints(html) : html))
 }
 
 function copyMedia(from: string, to: string): void {
@@ -544,7 +606,7 @@ function copyMedia(from: string, to: string): void {
   }
 }
 
-function buildCss(designDir: string, outFile: string): void {
+function buildCss(designDir: string, outFile: string, fontCss = ''): void {
   fs.mkdirSync(path.dirname(outFile), { recursive: true })
   const cli = tailwindCli()
   const original = fs.readFileSync(path.join(designDir, 'styles.css'), 'utf8')
@@ -561,7 +623,7 @@ function buildCss(designDir: string, outFile: string): void {
     })
     .filter(Boolean)
     .join('\n')
-  fs.writeFileSync(input, `${imported}\n${theme}\n${layoutStyles}\n`)
+  fs.writeFileSync(input, `${imported}\n${fontCss}\n${theme}\n${layoutStyles}\n`)
   try {
     const result = spawnSync(process.execPath, [cli, '--input', input, '--output', outFile], {
       cwd: designDir,

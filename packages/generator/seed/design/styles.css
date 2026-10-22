@@ -26,3 +26,41 @@
   padding: 0.4rem 0.6rem;
   text-align: left;
 }
+
+/* Baseline: what every page gets. */
+img {
+  /* A calm block while a picture loads, so the page does not flash white and nothing jumps. */
+  background-color: var(--color-surface);
+}
+:focus-visible {
+  outline: 3px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.skip-link {
+  position: absolute;
+  left: 0.5rem;
+  top: -4rem;
+  z-index: 10;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  padding: 0.5rem 1rem;
+}
+.skip-link:focus {
+  top: 0.5rem;
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* A soft fade between pages, in browsers that support it. The others just navigate. */
+  @view-transition {
+    navigation: auto;
+  }
+  ::view-transition-group(root) {
+    animation-duration: 0.2s;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

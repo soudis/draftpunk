@@ -61,16 +61,12 @@ const TYPES: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
 }
 
-// Fonts are part of how a page looks. Nothing else leaves the machine from a preview.
-const ALLOWED_HOSTS = new Set(['fonts.googleapis.com', 'fonts.gstatic.com'])
-
 export type RouteDecision =
   | { kind: 'file'; file: string; type: string }
   | { kind: 'missing' }
-  | { kind: 'allow' }
   | { kind: 'block' }
 
-/** What to do with a request a preview page makes: serve it from the generated site, let a font through, or stop it. */
+/** What to do with a request a preview page makes: serve it from the generated site, or stop it. A site loads nothing from another host. */
 export function decideRoute(distDir: string, requested: string): RouteDecision {
   let url: URL
   try {
@@ -78,7 +74,7 @@ export function decideRoute(distDir: string, requested: string): RouteDecision {
   } catch {
     return { kind: 'block' }
   }
-  if (url.origin !== PREVIEW_ORIGIN) return ALLOWED_HOSTS.has(url.hostname) && url.protocol === 'https:' ? { kind: 'allow' } : { kind: 'block' }
+  if (url.origin !== PREVIEW_ORIGIN) return { kind: 'block' }
   let rel: string
   try {
     rel = decodeURIComponent(url.pathname)

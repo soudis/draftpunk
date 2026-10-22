@@ -8,6 +8,7 @@ import type { EditorMode } from './mode'
 import { browserConfigured } from './browser'
 import { cached } from './web-cache'
 import { lintDesign, newFindings } from './design-lint'
+import { addFont, tokenFontsWithoutFiles } from './fonts-add'
 import { addRule } from './rules'
 import { listReferences, readReference, saveReference } from './references'
 import { formatProfile, PROFILE_SOURCE, type RawProfile } from './site-profile'
@@ -47,6 +48,7 @@ import {
   pageFilePath,
   pageLayoutsOrThrow,
   pagesByLayout,
+  parseFonts,
   parseLabels,
   parseLayoutFile,
   readEventFields,
@@ -663,10 +665,11 @@ async function saveDesignFile(root: string, rel: string, content: string, verifi
     if (checked.errors.length > 0) fail(`${checked.errors.join('. ')}. Nothing was written.`)
   }
   if (target === 'labels.yml') parseLabels(content)
+  if (target === 'fonts.yml') parseFonts(content)
   let tokenNote = ''
   if (target === 'tokens.yml') {
     const tokens = parseTokens(content)
-    const warnings = contrastWarnings(tokens)
+    const warnings = [...contrastWarnings(tokens), ...tokenFontsWithoutFiles(root, tokens.fonts)]
     if (warnings.length > 0) tokenNote = `\nToken check (advice): ${warnings.join(' ')}`
   }
   const file = designFilePath(root, target)
@@ -700,7 +703,7 @@ export function designTools(root: string, options: ToolOptions = {}): ToolSet {
       description: 'List the design files. Layouts are listed by list_layouts.',
       input: z.object({}),
       execute: () => ({
-        files: ['brief.md', 'tokens.yml', 'rules.md', 'styles.css', 'shell.njk', 'nav.yml', 'labels.yml', 'categories.yml', 'fields.yml', 'site.yml'],
+        files: ['brief.md', 'tokens.yml', 'fonts.yml', 'rules.md', 'styles.css', 'shell.njk', 'nav.yml', 'labels.yml', 'categories.yml', 'fields.yml', 'site.yml'],
         layouts: listLayoutNames(path.join(root, 'design')).map((name) => layoutLabel(root, name)),
         references: listReferences(root).map((item) => item.host),
       }),
@@ -768,7 +771,7 @@ export function designTools(root: string, options: ToolOptions = {}): ToolSet {
           'styles.css',
           ...listLayoutNames(designDir).flatMap((name) => [`layouts/${name}/template.njk`, `layouts/${name}/style.css`]),
         ]
-        const lines: string[] = contrastWarnings(tokens).map((warning) => `- tokens.yml: ${warning}`)
+        const lines: string[] = [...contrastWarnings(tokens), ...tokenFontsWithoutFiles(root, tokens.fonts)].map((warning) => `- tokens.yml: ${warning}`)
         for (const rel of files) {
           const file = path.join(designDir, rel)
           if (!fs.existsSync(file)) continue
@@ -791,6 +794,19 @@ export function designTools(root: string, options: ToolOptions = {}): ToolSet {
         const { rules, added } = addRule(root, rule)
         return added ? `Added a rule. There are ${rules.length}: ${rules.join(' | ')}` : 'That rule is already there.'
       },
+    }),
+    add_font: defineTool('add_font', {
+      description:
+        'Add a font family to the site, as files in the site. It downloads an open-licence family (from the Fontsource catalog) once, here on the server, so a visitor never contacts anyone else, which the law needs. Use it when a design calls for a font the site does not have. weights default to 400 and 700. subsets default to latin, which covers German; add latin-ext for Polish, Czech or Turkish. as names the font token to set to this family (sans, serif, or another name), so classes like font-serif use it. The starter has Source Sans 3 and Source Serif 4.',
+      input: z.object({
+        family: z.string().describe('Required. The family name, such as Lora or Source Sans 3.'),
+        weights: z.array(z.number().int()).optional().describe('Optional. Weights such as [400, 700]. Each file is about 20 KB, so ask for what is used.'),
+        italic: z.boolean().optional().describe('Optional. Also the italic of each weight.'),
+        subsets: z.array(z.string()).optional().describe('Optional. Default ["latin"].'),
+        as: z.string().optional().describe('Optional. The font token to set: sans, serif, or another name.'),
+        preload: z.boolean().optional().describe('Optional. Preload the regular weight, which is on the first screen. Default true.'),
+      }),
+      execute: async (input) => finish(root, await addFont(root, input, options.fetchPage)),
     }),
     replace_layout: defineTool('replace_layout', {
       description:
@@ -821,7 +837,7 @@ export function designTools(root: string, options: ToolOptions = {}): ToolSet {
     }),
     write_design: defineTool('write_design', {
       description:
-        'Overwrite a design file with the full new content: brief.md, tokens.yml, rules.md, styles.css, shell.njk, nav.yml, labels.yml, categories.yml, fields.yml, or site.yml. Write a layout with write_layout. For a small change, use edit_design. This restyles every page. The shell and styles must not name one page, hold a picture address, or hold words: interface text goes in labels.yml. A stylesheet that sets opacity 0 on html or body is refused.',
+        'Overwrite a design file with the full new content: brief.md, tokens.yml, fonts.yml, rules.md, styles.css, shell.njk, nav.yml, labels.yml, categories.yml, fields.yml, or site.yml. Write a layout with write_layout. For a small change, use edit_design. This restyles every page. The shell and styles must not name one page, hold a picture address, or hold words: interface text goes in labels.yml. A stylesheet that sets opacity 0 on html or body is refused.',
       input: z.object({
         path: z.string().describe('Required. Path relative to design/, such as styles.css.'),
         content: z.string().min(1).describe('Required. The full new content of the file.'),

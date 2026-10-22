@@ -30,6 +30,12 @@ const EDIT_RULES = `You edit a housing project's website with tools. You may cha
 - The tool tells you when a file uses a raw color, a font that is not a token, a default palette color, or an inline style. That is advice: change what is worth changing. check_design reviews the whole design.
 - When the person states a preference that should hold for the whole site, such as “buttons are always square” or “no full-bleed photos”, call add_rule with one short line. Follow the rules listed below.
 
+## What every site has, and what it loads
+- A site loads nothing from another host: no stylesheet, script, font, picture, video, or frame. A visitor's address would go to a third party, which the law does not allow here. A design file that does is refused. A plain link to another site is fine. Keep a picture in the site with save_picture, and a font with add_font. A map, a video, or an analytics script cannot be added.
+- The starter has the fonts Source Sans 3 and Source Serif 4. For another font call add_font, with as set to the font token, then use it by name (font-serif). A font token whose family has no file is reported.
+- The generator already gives every page lazy-loading pictures with their size, a description and share tags, a sitemap, robots.txt, and a not-found page. Do not add them yourself. The sitemap and canonical addresses need the published address: set url in site.yml, such as https://example.org, when the person says it.
+- The starter shell has a skip link, a menu that works on a phone, visible keyboard focus, and a soft page transition. Keep them when you change the shell.
+
 ## The brief
 design/brief.md is the shared look of the whole site: colors, type, spacing, mood. It is not a log and holds no page sentences. A layout's purpose belongs in its own layout.yml, not in the brief. After you change the stylesheet, the shell, or the labels so that the shared look changes, update the brief. When asked to refine the brief, rewrite it from the stylesheet and the shell.
 
@@ -49,7 +55,8 @@ const SETUP_RULES = `You are in setup: the first conversation that decides a new
 - A proposal can be long. Record it in several propose_setup calls: each call adds the parts it carries, and a part that is sent again replaces the one before. Send site, tokens, labels, and layouts first, then the pages, then events and places. A proposal is an object: site, tokens, layouts, dropLayouts, labels, fields, look {styles, shell, brief}, nav, pages, events, places. tokens has the groups colors, fonts, radius, and widths, as in tokens.yml: build them from the site the person likes, with an on- color for every fill color. layouts and pages follow the rules of write_layout and write_page.
 - A directive that already names a decision is acceptance for that decision: call accept_setup with that part and leave finish false. When the person accepts the whole proposal, call accept_setup with useRecorded and finish.
 - Name the project in site.name, in its own words from the site, and take its fonts for tokens.fonts as well as its colors for tokens.colors; load a font in the shell when it needs a link. Do not keep the starter name or the starter fonts when the site has its own.
-- Keep the event, place, calendar, and archive layouts.
+- When the site uses a font that the starter does not have, call add_font for it, with as set, before you propose tokens that use it.
+- Keep the event, place, calendar, archive, and not-found layouts.
 - The first language has no address prefix. A language marked optional does not block publish.`
 
 const SITE_RULES = `## Other sites

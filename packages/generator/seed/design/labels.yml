@@ -7,3 +7,18 @@ upcoming:
 ical:
   de: iCal
   en: iCal
+skip:
+  de: Zum Inhalt springen
+  en: Skip to content
+menu:
+  de: Menü
+  en: Menu
+not_found_title:
+  de: Seite nicht gefunden
+  en: Page not found
+not_found_text:
+  de: Diese Adresse gibt es nicht (mehr). Vielleicht hilft die Startseite weiter.
+  en: This address does not exist (any more). The front page may help.
+back_home:
+  de: Zur Startseite
+  en: Back to the front page

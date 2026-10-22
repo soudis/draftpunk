@@ -8,14 +8,15 @@
   {% for item in alternates %}
   <link rel="alternate" hreflang="{{ item.hreflang }}" href="{{ item.href }}">
   {% endfor %}
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;700&family=Source+Serif+4:wght@600&display=swap">
 </head>
 <body class="bg-page text-ink font-sans">
+  <a class="skip-link" href="#main">{{ labels.skip }}</a>
   <header class="border-b border-border">
-    <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-6 py-4">
+    <div class="mx-auto flex max-w-content flex-wrap items-center justify-between gap-4 px-6 py-4">
       <a class="font-serif text-2xl text-heading" href="{{ prefix }}/">{{ name }}</a>
-      <nav class="flex flex-wrap items-start gap-x-4 gap-y-2 text-sm uppercase tracking-wide">
+      <input type="checkbox" id="menu-toggle" class="peer sr-only">
+      <label for="menu-toggle" class="cursor-pointer border border-border px-3 py-1 text-sm uppercase tracking-wide md:hidden">{{ labels.menu }}</label>
+      <nav class="hidden w-full flex-col gap-3 text-sm uppercase tracking-wide peer-checked:flex md:flex md:w-auto md:flex-row md:flex-wrap md:items-start md:gap-x-4 md:gap-y-2">
         {% for item in nav %}
           {% if item.children %}
           <details class="group">
@@ -36,11 +37,11 @@
       </nav>
     </div>
   </header>
-  <main>
+  <main id="main">
     {% block body %}{% endblock %}
   </main>
   <footer class="mt-16 bg-surface px-6 py-8 text-on-surface">
-    <div class="mx-auto flex max-w-5xl flex-wrap gap-6 text-sm">
+    <div class="mx-auto flex max-w-content flex-wrap gap-6 text-sm">
       {% for item in footer %}
       <a href="{{ item.href }}">{{ item.label }}</a>
       {% endfor %}

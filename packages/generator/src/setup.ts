@@ -13,6 +13,7 @@ export type SetupProposal = {
     name?: string
     id?: string
     timezone?: string
+    url?: string
     languages?: { id: string; label?: string; optional?: boolean }[]
   }
   layouts?: { name: string; purpose: string; slots?: unknown; template: string; style?: string }[]
@@ -60,6 +61,7 @@ export function applyProposal(root: string, input: SetupProposal, finish = false
       name: proposal.site.name?.trim() || current.name,
       id: proposal.site.id?.trim() || current.id,
       timezone: proposal.site.timezone?.trim() || current.timezone,
+      url: proposal.site.url?.trim() || current.url,
       languages: languages && languages.length > 0 ? languages : current.languages,
     })
     notes.push('site')

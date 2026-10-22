@@ -26,6 +26,7 @@ import {
   writePage,
 } from './index'
 import { scopeLayoutCss } from './layouts'
+import { fontFaceCss, fontPreloadLinks, parseFonts, readFonts } from './fonts'
 import { contrastRatio, contrastWarnings, nearestColor, parseTokens, tokenSummary } from './tokens'
 
 test('the picture catalog stays out of the published site', () => {
@@ -391,4 +392,85 @@ test('a part of a proposal sent as the text of a file is read as data, and text 
   assert.throws(() => applyProposal(root, { nav: 'plain text' as never }), /nav must be a list or an object, not text/)
   assert.throws(() => applyProposal(root, { pages: 'x' as never }), /pages must be a list/)
   assert.throws(() => applyProposal(root, { site: 'x' as never }), /site must be an object/)
+})
+
+test('pictures load as the page needs them, keep their space, and a design that set an attribute keeps it', () => {
+  const root = newSite('housing-pictures-')
+  fs.writeFileSync(path.join(root, 'media', 'wide.svg'), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200"/>')
+  fs.writeFileSync(
+    path.join(root, 'design', 'layouts', 'article', 'template.njk'),
+    '{% extends "shell.njk" %}{% block body %}<img id="a" src="/media/wide.svg" alt=""><img id="b" src="/media/wide.svg" alt=""><img id="c" src="/media/wide.svg" alt="" loading="eager" width="10" height="5"><img id="d" src="/media/missing.png" alt="">{% endblock %}',
+  )
+  writePage(root, { slug: 'k', layout: 'article', title: { de: 'K' }, slots: { body: { de: 'x' } } })
+  const out = generate(root, path.join(root, 'out'))
+  const html = fs.readFileSync(path.join(out.outDir, 'k', 'index.html'), 'utf8')
+  const tag = (id: string) => new RegExp(`<img id="${id}"[^>]*>`).exec(html)?.[0] ?? ''
+  assert.equal(tag('a').includes('loading'), false)
+  assert.match(tag('a'), /decoding="async" width="400" height="200"/)
+  assert.match(tag('b'), /loading="lazy" decoding="async" width="400" height="200"/)
+  assert.match(tag('c'), /loading="eager" width="10" height="5" decoding="async"/)
+  assert.match(tag('d'), /loading="lazy" decoding="async">/)
+  assert.equal(tag('d').includes('width'), false)
+})
+
+test('a page tells search engines and shared links what it is, and keeps what the design wrote', () => {
+  const root = newSite('housing-head-')
+  fs.writeFileSync(path.join(root, 'design', 'site.yml'), `${fs.readFileSync(path.join(root, 'design', 'site.yml'), 'utf8')}url: https://example.org/\n`)
+  writePage(root, { slug: 'k', layout: 'article', title: { de: 'Kontakt "Hof"', en: 'Contact' }, slots: { body: { de: `${'Wir sind erreichbar. '.repeat(20)}`, en: 'Write to us.' } } })
+  const out = generate(root, path.join(root, 'out'))
+  const de = fs.readFileSync(path.join(out.outDir, 'k', 'index.html'), 'utf8')
+  assert.match(de, /<meta name="description" content="Wir sind erreichbar\. Wir sind erreichbar\.[^"]*…">/)
+  assert.match(de, /<meta property="og:title" content="Kontakt &quot;Hof&quot;">/)
+  assert.match(de, /<meta property="og:locale" content="de_AT">/)
+  assert.match(de, /<link rel="canonical" href="https:\/\/example\.org\/k\/">/)
+  assert.match(de, /<meta name="theme-color" content="#3f6f64">/)
+  assert.match(fs.readFileSync(path.join(out.outDir, 'en', 'k', 'index.html'), 'utf8'), /<link rel="canonical" href="https:\/\/example\.org\/en\/k\/">/)
+  assert.match(fs.readFileSync(path.join(out.outDir, 'en', 'k', 'index.html'), 'utf8'), /<meta name="description" content="Write to us\.">/)
+  fs.writeFileSync(
+    path.join(root, 'design', 'layouts', 'article', 'template.njk'),
+    '{% extends "shell.njk" %}{% block body %}<p>x</p>{% endblock %}',
+  )
+  fs.writeFileSync(path.join(root, 'design', 'shell.njk'), fs.readFileSync(path.join(root, 'design', 'shell.njk'), 'utf8').replace('</head>', '<meta name="description" content="Mine"><link rel="canonical" href="https://mine.example/"></head>'))
+  const mine = fs.readFileSync(path.join(generate(root, path.join(root, 'out2')).outDir, 'k', 'index.html'), 'utf8')
+  assert.equal((mine.match(/name="description"/g) ?? []).length, 1)
+  assert.match(mine, /content="Mine"/)
+  assert.equal((mine.match(/rel="canonical"/g) ?? []).length, 1)
+})
+
+test('sitemap, robots, and a not-found page are made, and the sitemap waits for an address', () => {
+  const root = newSite('housing-files-')
+  const without = generate(root, path.join(root, 'a'))
+  assert.equal(fs.existsSync(path.join(without.outDir, 'sitemap.xml')), false)
+  assert.equal(fs.readFileSync(path.join(without.outDir, 'robots.txt'), 'utf8'), 'User-agent: *\nAllow: /\n')
+  const notFound = fs.readFileSync(path.join(without.outDir, '404.html'), 'utf8')
+  assert.match(notFound, /<title>Seite nicht gefunden · Housing project<\/title>/)
+  assert.match(notFound, /<body[^>]*data-layout="notfound"/)
+  assert.match(notFound, /Zur Startseite/)
+  fs.writeFileSync(path.join(root, 'design', 'site.yml'), `${fs.readFileSync(path.join(root, 'design', 'site.yml'), 'utf8')}url: https://example.org\n`)
+  const withUrl = generate(root, path.join(root, 'b'))
+  const sitemap = fs.readFileSync(path.join(withUrl.outDir, 'sitemap.xml'), 'utf8')
+  assert.match(sitemap, /<url><loc>https:\/\/example\.org\/<\/loc><\/url>/)
+  assert.match(sitemap, /<url><loc>https:\/\/example\.org\/en\/kontakt\/<\/loc><\/url>/)
+  assert.equal(sitemap.includes('404'), false)
+  assert.match(fs.readFileSync(path.join(withUrl.outDir, 'robots.txt'), 'utf8'), /Sitemap: https:\/\/example\.org\/sitemap\.xml/)
+})
+
+test('fonts are files in the site: face rules, preload, and a font from elsewhere is refused', () => {
+  const faces = parseFonts('- family: Lora\n  weight: 400\n  file: /media/fonts/lora-latin-400-normal.woff2\n  unicodeRange: U+0000-00FF\n  preload: true\n- family: Lora\n  weight: 700\n  style: italic\n  file: /media/fonts/lora-latin-700-italic.woff2\n')
+  assert.equal(fontFaceCss(faces), '@font-face {\n  font-family: "Lora";\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url("/media/fonts/lora-latin-400-normal.woff2") format("woff2");\n  unicode-range: U+0000-00FF;\n}\n@font-face {\n  font-family: "Lora";\n  font-style: italic;\n  font-weight: 700;\n  font-display: swap;\n  src: url("/media/fonts/lora-latin-700-italic.woff2") format("woff2");\n}')
+  assert.deepEqual(fontPreloadLinks(faces), ['<link rel="preload" href="/media/fonts/lora-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>'])
+  assert.throws(() => parseFonts('- family: X\n  file: https://fonts.gstatic.com/x.woff2\n'), /A font from another host is not allowed/)
+  assert.throws(() => parseFonts('- family: X\n  file: /media/fonts/x.ttf\n'), /must be a woff2 file/)
+  assert.throws(() => parseFonts('- family: X\n  weight: 1000\n  file: /media/fonts/x.woff2\n'), /weight must be 100 to 900/)
+  assert.throws(() => parseFonts('family: X'), /must be a list of font faces/)
+  const root = newSite('housing-fonts-')
+  const out = generate(root, path.join(root, 'out'))
+  const css = fs.readFileSync(path.join(out.outDir, 'assets', 'styles.css'), 'utf8')
+  assert.equal((css.match(/@font-face/g) ?? []).length, 4)
+  assert.match(css, /@view-transition/)
+  assert.equal(/googleapis|gstatic|url\(\s*["']?(?:https?:)?\/\//.test(css), false)
+  for (const face of readFonts(root)) assert.equal(fs.existsSync(path.join(out.outDir, face.file)), true, face.file)
+  const html = fs.readFileSync(path.join(out.outDir, 'index.html'), 'utf8')
+  assert.equal((html.match(/rel="preload"/g) ?? []).length, 2)
+  assert.equal(/googleapis|gstatic/.test(html), false)
 })
