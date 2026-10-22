@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readSite } from './read-site'
 import { assertPublicUrl, extractAppearance, fetchPublicBytes, presentPage, readWebsite } from './read-website'
 
 const publicResolve = async () => [{ address: '93.184.216.34' }]
@@ -24,7 +23,7 @@ test('a public page returns cleaned HTML, absolute links, and colors', async () 
     <h1>Schöner leben</h1><p>In der Rappachgasse.</p>`
   const css = 'body { font-family: "Source Sans 3", sans-serif; color: #233452; background: #fff; }'
   const fetched: string[] = []
-  const page = await readWebsite('https://schlor.org/', async (url) => {
+  const page = await readWebsite('https://schlor.org/', async (url: string) => {
     fetched.push(url)
     if (url.includes('wp-includes')) throw new Error('preset stylesheet should be skipped')
     const body = url.endsWith('.css') ? css : html
@@ -125,12 +124,17 @@ test('scripts are removed before the page is cut', () => {
   const body = page.split('\n\n')[1] ?? ''
   assert.ok(body.length <= 80_000)
   assert.ok(body.length > 79_000)
+  assert.match(page, /\[Page cut: showing \d+ of \d+ characters\./)
 })
 
-test('setup reads one page and leaves the next page for another call', async () => {
+test('a page that fits has no cut notice', () => {
+  assert.equal(presentPage('https://schlor.org/', '<p>Kurz</p>', '').includes('Page cut'), false)
+})
+
+test('a read fetches one page and leaves the next page for another call', async () => {
   const html = '<a href="/kontakt/">Kontakt</a><p>Start</p>'
   const fetched: string[] = []
-  const page = await readSite('https://schlor.org/', async (url) => {
+  const page = await readWebsite('https://schlor.org/', async (url: string) => {
     fetched.push(url)
     return new Response(html, { status: 200, headers: { 'content-type': 'text/html' } })
   }, publicResolve)

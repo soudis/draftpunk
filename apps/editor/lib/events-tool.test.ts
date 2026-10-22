@@ -23,5 +23,5 @@ test('read_event returns the event that write_event would change', async () => {
   assert.match(listed.join('\n'), /ping-pong-beisl — Ping Pong Beisl — 2026-10-22T17:00:00.000Z–2026-10-22T20:00:00.000Z/)
   const read = await tools.read_event.execute!({ slug: 'ping-pong-beisl' }, { toolCallId: 'read', messages: [] })
   assert.match(String(read), /Herbsttermine/)
-  assert.equal(await tools.read_event.execute!({ slug: 'missing-event' }, { toolCallId: 'miss', messages: [] }), 'Missing event missing-event')
+  await assert.rejects(() => tools.read_event.execute!({ slug: 'missing-event' }, { toolCallId: 'miss', messages: [] }), /Missing event missing-event/)
 })

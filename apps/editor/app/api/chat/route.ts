@@ -1,14 +1,16 @@
-import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from 'ai'
+import { convertToModelMessages, streamText, type UIMessage } from 'ai'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { commitAll } from '@/lib/git'
 import { chatErrorText } from '@/lib/api-error'
 import { attachThoughtSignatures, tapThoughtSignatures } from '@/lib/gemini'
 import { sessionFromRequest } from '@/lib/session'
 import { siteRoot } from '@/lib/site'
-import { repairUnavailableTool, systemPrompt, toolsFor } from '@/lib/tools'
+import { agentRun } from '@/lib/agent'
+import { parseMode } from '@/lib/mode'
 import { nameFromFirstInput } from '@/lib/chat-name'
 import { currentModelSettings } from '@/lib/model-settings'
-import { chatFor, chatsFor, rememberReply, storeChat } from '@/lib/sessions'
+import { chatFor, chatsFor, editorDatabase, rememberReply, storeChat } from '@/lib/sessions'
+import { recordStep, stepTools } from '@/lib/usage-log'
 
 export const runtime = 'nodejs'
 
@@ -25,8 +27,8 @@ export async function POST(request: Request) {
   if (!modelSettings.apiKey) {
     return new Response('LLM_API_KEY is not set', { status: 400 })
   }
-  const body = (await request.json()) as { messages: UIMessage[]; mode?: 'content' | 'design' | 'setup'; sessionId?: string }
-  const mode = body.mode === 'design' || body.mode === 'setup' ? body.mode : 'content'
+  const body = (await request.json()) as { messages: UIMessage[]; mode?: string; sessionId?: string }
+  const mode = parseMode(body.mode)
   if (!body.sessionId || !chatFor(session.sub, body.sessionId)) {
     return Response.json({ error: 'Chat not found' }, { status: 404 })
   }
@@ -48,15 +50,29 @@ export async function POST(request: Request) {
     fetch: async (input, init) => tapThoughtSignatures(await fetch(input, init), thoughtSignatures),
     transformRequestBody: (body) => attachThoughtSignatures(body, thoughtSignatures),
   })
+  let step = 0
   const result = streamText({
     model: provider.chatModel(modelSettings.model),
-    system: systemPrompt(mode, root),
+    ...agentRun(mode, root),
     messages: await convertToModelMessages(body.messages),
-    tools: toolsFor(mode, root),
-    stopWhen: stepCountIs(40),
-    prepareStep: ({ stepNumber }) => (stepNumber >= 39 ? { toolChoice: 'none' } : {}),
     abortSignal: request.signal,
-    experimental_repairToolCall: repairUnavailableTool(mode),
+    onStepFinish: (finished) => {
+      try {
+        recordStep(editorDatabase(), {
+          sessionId,
+          turn: userCount,
+          step: (step += 1),
+          model: modelSettings.model,
+          inputTokens: finished.usage.inputTokens ?? 0,
+          cachedInputTokens: finished.usage.cachedInputTokens ?? 0,
+          outputTokens: finished.usage.outputTokens ?? 0,
+          finishReason: finished.finishReason,
+          tools: stepTools(finished.content),
+        })
+      } catch (error) {
+        console.error('Could not record the step', error)
+      }
+    },
   })
   return result.toUIMessageStreamResponse({
     originalMessages: body.messages,

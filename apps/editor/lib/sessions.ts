@@ -4,7 +4,7 @@ import Database from 'better-sqlite3'
 import type { UIMessage } from 'ai'
 import { parseMode, type EditorMode } from './mode'
 import { chatDatabasePath } from './site'
-import { decodeThread } from './thread'
+import { migrateUsage } from './usage-log'
 
 export type SessionSummary = {
   id: string
@@ -31,10 +31,6 @@ function db(): Database.Database {
 
 export function migrate(database: Database.Database): void {
   database.exec(`
-    CREATE TABLE IF NOT EXISTS thread (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      messages TEXT NOT NULL
-    );
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,
       owner TEXT NOT NULL,
@@ -51,6 +47,7 @@ export function migrate(database: Database.Database): void {
       message_id TEXT NOT NULL
     );
   `)
+  migrateUsage(database)
 }
 
 export function recordReplyCommit(database: Database.Database, sessionId: string, messageId: string, revision: string): void {
@@ -93,10 +90,9 @@ export function sessionTitle(messages: { role: string; parts: { type: string; te
 }
 
 export function listChats(database: Database.Database, owner: string): { sessions: SessionSummary[]; current: ChatSession } {
-  claimLegacy(database, owner)
   let sessions = summaries(database, owner)
   if (sessions.length === 0) {
-    createChat(database, owner, 'content')
+    createChat(database, owner, 'edit')
     sessions = summaries(database, owner)
   }
   const current = openChat(database, owner, sessions[0].id)
@@ -198,27 +194,6 @@ function summaries(database: Database.Database, owner: string): SessionSummary[]
     mode: parseMode(row.mode),
     updatedAt: row.updated_at,
   }))
-}
-
-function claimLegacy(database: Database.Database, owner: string): void {
-  const claim = database.transaction(() => {
-    const row = database.prepare('SELECT messages FROM thread WHERE id = 1').get() as { messages: string } | undefined
-    if (!row) return
-    const decoded = decodeThread(row.messages)
-    database.prepare('DELETE FROM thread WHERE id = 1').run()
-    if (decoded.messages.length === 0) return
-    const session: ChatSession = {
-      id: crypto.randomUUID(),
-      title: sessionTitle(decoded.messages),
-      messages: decoded.messages,
-      mode: decoded.mode,
-      updatedAt: Date.now(),
-    }
-    database
-      .prepare('INSERT INTO sessions (id, owner, title, messages, mode, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(session.id, owner, session.title, JSON.stringify(session.messages), session.mode, session.updatedAt)
-  })
-  claim()
 }
 
 function parseMessages(raw: string): UIMessage[] {

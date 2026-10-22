@@ -33,10 +33,7 @@ export function unchangedNote(
   if (status === 'submitted' || status === 'streaming') return null
   if (parts.some((part) => savedChange(part))) return null
   const spoke = parts.some((part) => part.type === 'text' && part.text?.trim())
-  const usedTool = parts.some((part) => {
-    const name = toolPartName(part)
-    return name && name !== 'reject_tool'
-  })
+  const usedTool = parts.some((part) => toolPartName(part))
   return usedTool && !spoke ? 'Nothing was saved.' : null
 }
 
@@ -49,7 +46,6 @@ export function activityLabel(
   const tool = assistant?.parts.find(
     (part) =>
       part.type.startsWith('tool-') &&
-      part.type !== 'tool-reject_tool' &&
       part.state !== 'output-available' &&
       part.state !== 'output-error',
   )

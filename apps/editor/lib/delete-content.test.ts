@@ -8,7 +8,7 @@ import { contentTools } from './tools'
 
 const call = { toolCallId: 'delete', messages: [] }
 
-test('content mode removes a page, an event, and a place, and discards a picture', async () => {
+test('the content tools remove a page, an event, and a place, and discards a picture', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'schlor-delete-'))
   initSite(root)
   writePageFile(path.join(root, 'content', 'pages', 'alt', 'de.md'), {
@@ -52,7 +52,7 @@ test('content mode removes a page, an event, and a place, and discards a picture
   assert.match(String(picture), /\/media\/hof\.png/)
   assert.match(String(picture), /used 1 time/)
 
-  assert.equal(await tools.delete_page.execute!({ slug: 'home' }, call), 'The home page cannot be removed.')
+  await assert.rejects(() => tools.delete_page.execute!({ slug: 'home' }, call), /The home page cannot be removed\./)
   assert.equal(fs.existsSync(path.join(root, 'content', 'pages', 'home', 'de.md')), true)
 
   assert.equal(await tools.delete_page.execute!({ slug: 'alt' }, call), 'Removed page alt.')
@@ -69,6 +69,6 @@ test('content mode removes a page, an event, and a place, and discards a picture
 
   assert.equal(await tools.discard_picture.execute!({ file: 'hof.png' }, call), 'Discarded /media/hof.png.')
   assert.equal(fs.existsSync(path.join(root, 'media', 'hof.png')), false)
-  assert.equal(await tools.delete_page.execute!({ slug: 'missing' }, call), 'Missing page missing')
-  assert.equal(await tools.read_picture.execute!({ file: 'hof.png' }, call), 'Unknown picture.')
+  await assert.rejects(() => tools.delete_page.execute!({ slug: 'missing' }, call), /Missing page missing/)
+  await assert.rejects(() => tools.read_picture.execute!({ file: 'hof.png' }, call), /Unknown picture\./)
 })

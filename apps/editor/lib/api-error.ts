@@ -3,9 +3,12 @@ export function chatErrorText(error: unknown): string {
   return `${presented.type}\n${presented.description}`
 }
 
+export const TOOL_REFUSED = 'Not done'
+
 export function presentChatError(raw: string): { type: string; description: string } {
   const text = raw.replace(/\r/g, '').trim()
   if (!text) return { type: 'API error', description: 'The request failed.' }
+  if (text.startsWith(`${TOOL_REFUSED}\n`)) return { type: TOOL_REFUSED, description: text.slice(TOOL_REFUSED.length + 1).trim() }
   if (text === 'Error in input stream' || text.endsWith('\nError in input stream')) {
     return { type: 'Connection closed', description: 'The reply stopped before it finished. Send it again.' }
   }
@@ -31,6 +34,7 @@ function describeApiError(error: unknown): { type: string; description: string }
     return { type: 'API error', description: short(typeof error === 'string' ? error : 'The request failed.') }
   }
   const record = error as { name?: unknown; message?: unknown; statusCode?: unknown; responseBody?: unknown }
+  if (record.name === 'ToolError' && typeof record.message === 'string') return { type: TOOL_REFUSED, description: record.message }
   const message = typeof record.message === 'string' ? record.message : ''
   const name = typeof record.name === 'string' && record.name !== 'Error' ? record.name : ''
   const statusCode = typeof record.statusCode === 'number' ? record.statusCode : undefined

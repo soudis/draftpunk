@@ -73,9 +73,11 @@ export async function assertPublicUrl(input: string, resolve: Resolve = resolveP
 const PAGE_HTML_CAP = 80_000
 
 export function presentPage(url: string, html: string, appearance: string): string {
-  const prepared = capHtml(preparePageHtml(html, url), PAGE_HTML_CAP)
+  const full = preparePageHtml(html, url)
+  const prepared = capHtml(full, PAGE_HTML_CAP)
+  const cut = full.length > prepared.length ? `[Page cut: showing ${prepared.length} of ${full.length} characters. The rest is not available. Read a more specific page for the missing part.]` : ''
   const style = [extractAppearance(inlineCss(html)), appearance].filter(Boolean).join('\n').slice(0, 6000)
-  return [`URL: ${url}`, prepared, style ? `Colors and type:\n${style}` : ''].filter(Boolean).join('\n\n')
+  return [`URL: ${url}`, prepared, cut, style ? `Colors and type:\n${style}` : ''].filter(Boolean).join('\n\n')
 }
 
 export function preparePageHtml(html: string, pageUrl: string): string {

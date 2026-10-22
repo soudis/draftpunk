@@ -126,7 +126,7 @@ export function ChatPanel({
     const response = await fetch('/api/sessions', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ mode: current?.mode ?? 'content' }),
+      body: JSON.stringify({ mode: current?.mode ?? 'edit' }),
     })
     if (!response.ok) return
     remember((await response.json()) as ChatRecord)
@@ -385,7 +385,7 @@ export function ChatPanel({
             key={current.id}
             sessionId={current.id}
             initialMessages={current.messages}
-            mode={current.mode ?? 'content'}
+            mode={current.mode ?? 'edit'}
             onBusy={setStreamBusy}
             onFinished={() => {
               refreshUndo()
@@ -620,7 +620,6 @@ function ChatConversation({
           <article className={`msg ${message.role}`} key={message.id}>
             {chatPieces(message.parts).map((piece, index) => {
               if (piece.kind === 'text') return <ChatMarkdown key={index} text={piece.text} />
-              if (piece.kind === 'reject') return <p className="gaps" key={index}>{piece.text}</p>
               if (piece.kind === 'error') {
                 const failure = presentChatError(piece.text)
                 return (

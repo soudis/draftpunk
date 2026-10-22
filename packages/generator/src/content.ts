@@ -461,15 +461,27 @@ export type PlaceDoc = {
   onPremises: boolean
 }
 
+// A page has content when it has a body, or when a layout reads its slots and they are filled.
+function hasContent(page: PageDoc): boolean {
+  if (page.body.trim().length > 0) return true
+  return Object.entries(page.data).some(([key, value]) => !['layout', 'title', 'date'].includes(key) && !isEmpty(value))
+}
+
+function isEmpty(value: unknown): boolean {
+  if (value === undefined || value === null) return true
+  if (typeof value === 'string') return value.trim() === ''
+  if (Array.isArray(value)) return value.every(isEmpty)
+  if (typeof value === 'object') return Object.values(value as Record<string, unknown>).every(isEmpty)
+  return false
+}
+
 export function bilingualGaps(root: string): string[] {
   const gaps: string[] = []
   const required = requiredLanguages(root)
   for (const slug of listPageSlugs(root)) {
     for (const lang of required) {
       const file = contentPagePath(root, slug, lang)
-      if (!fs.existsSync(file) || readPageFile(file, slug, lang).body.trim().length === 0) {
-        gaps.push(`page ${slug} ${lang}`)
-      }
+      if (!fs.existsSync(file) || !hasContent(readPageFile(file, slug, lang))) gaps.push(`page ${slug} ${lang}`)
     }
   }
   const eventsDir = path.join(root, 'content', 'events')

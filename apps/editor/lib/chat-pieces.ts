@@ -2,7 +2,6 @@ import { savedChange, toolPartName } from './activity'
 
 export type ChatPiece =
   | { kind: 'text'; text: string }
-  | { kind: 'reject'; text: string }
   | { kind: 'error'; text: string }
   | { kind: 'tools'; entries: { label: string; done: boolean }[] }
   | { kind: 'saves'; lines: string[] }
@@ -39,12 +38,6 @@ export function chatPieces(parts: Part[]): ChatPiece[] {
     }
     const name = toolPartName(part)
     if (!name) continue
-    if (name === 'reject_tool') {
-      flushTools()
-      flushSaves()
-      pieces.push({ kind: 'reject', text: part.output != null ? String(part.output) : 'That tool is in the other mode.' })
-      continue
-    }
     if (part.state === 'output-error' && typeof part.errorText === 'string') {
       flushTools()
       flushSaves()
