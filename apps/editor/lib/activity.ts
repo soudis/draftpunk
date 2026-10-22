@@ -1,5 +1,8 @@
 const SITE_WRITES = new Set([
   'write_design',
+  'write_layout',
+  'fork_layout',
+  'delete_layout',
   'replace_layout',
   'write_page',
   'write_event',

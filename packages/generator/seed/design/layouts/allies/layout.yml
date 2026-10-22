@@ -1,0 +1,13 @@
+purpose: "A page with an introduction and groups of links with logos, for partners, supporters and related projects."
+slots:
+  body: markdown
+  groups:
+    type: list
+    of:
+      title: text
+      links:
+        type: list
+        of:
+          href: link
+          label: text
+          image: image

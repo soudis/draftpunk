@@ -1,0 +1,11 @@
+layout: home
+title:
+  de: Wohnprojekt
+  en: Housing project
+slots:
+  lede:
+    de: Ein Haus, das von den Menschen gestaltet wird, die darin wohnen.
+    en: A house run by the people who live in it.
+  body:
+    de: Ersetze diesen Text durch die Beschreibung des Projekts.
+    en: Replace this text with the project.

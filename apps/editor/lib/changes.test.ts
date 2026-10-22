@@ -13,12 +13,12 @@ const languages = [
 
 test('draft changes become sentences', () => {
   assert.equal(
-    describeDraftChange('content/pages/kontakt/de.md', 'M', '---\ntitle: Kontakt\n---\n\nHallo\n', languages),
-    'Updated the Deutsch page Kontakt',
+    describeDraftChange('content/pages/kontakt.yml', 'M', 'layout: article\ntitle:\n  de: Kontakt\n  en: Contact\nslots: {}\n', languages),
+    'Updated the page Kontakt',
   )
   assert.equal(
-    describeDraftChange('content/pages/notes/en.md', 'D', '---\ntitle: Notes\n---\n', languages),
-    'Removed the English page Notes',
+    describeDraftChange('content/pages/notes.yml', 'D', 'title:\n  en: Notes\n', languages),
+    'Removed the page Notes',
   )
   assert.equal(
     describeDraftChange('content/events/sommer.yml', 'A', 'title:\n  de: Sommerfest\n  en: Summer party\n', languages),
@@ -26,24 +26,19 @@ test('draft changes become sentences', () => {
   )
   assert.equal(describeDraftChange('media/hof.webp', 'A', '', languages), 'Added the picture hof.webp')
   assert.equal(describeDraftChange('design/styles.css', 'M', '', languages), 'Changed the stylesheet')
-  assert.equal(describeDraftChange('design/layouts/home.yml', 'M', '', languages), 'Changed the home layout')
-  assert.equal(
-    describeDraftChange(
-      'content/pages/job/de.md',
-      'M',
-      '---\ntitle: >-\n  SchloR-Job: Förderungen\n  ab sofort\ndate: 2021-03-31\n---\n',
-      languages,
-    ),
-    'Updated the Deutsch page SchloR-Job: Förderungen ab sofort',
-  )
+  assert.equal(describeDraftChange('design/layouts/home/template.njk', 'M', '', languages), 'Changed the home layout')
+  assert.equal(describeDraftChange('design/layouts/home/style.css', 'A', '', languages), 'Added the home layout')
+  assert.equal(describeDraftChange('design/labels.yml', 'M', '', languages), 'Changed the labels')
 })
 
 test('publish lists the draft against the public site', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'schlor-changes-'))
   ensureGit(root)
   assert.deepEqual(publishChanges(root), [])
-  const page = path.join(root, 'content', 'pages', 'home', 'de.md')
-  fs.appendFileSync(page, '\nA new line.\n')
+  const page = path.join(root, 'content', 'pages', 'home.yml')
+  fs.appendFileSync(page, '# a new line\n')
+  fs.appendFileSync(path.join(root, 'design', 'layouts', 'home', 'template.njk'), '{# a note #}\n')
+  fs.appendFileSync(path.join(root, 'design', 'layouts', 'home', 'style.css'), '/* a note */\n')
   commitAll(root, 'Edit the homepage', { name: 'Ada', email: 'ada@schlor.org' })
-  assert.deepEqual(publishChanges(root), ['Updated the Deutsch page Housing project'])
+  assert.deepEqual(publishChanges(root), ['Updated the page Wohnprojekt', 'Changed the home layout'])
 })

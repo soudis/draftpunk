@@ -57,6 +57,14 @@ Phase 0 and Phase 1 are built, with these differences from the plan:
 - Eval scenarios run offline except `setup-from-url`. Run them with `pnpm --filter @schlor/editor eval -- --scenario all --base-url … --model …` (key in `LLM_API_KEY`), and print usage from a chat database with `pnpm --filter @schlor/editor report -- --db path/to/chat.sqlite`.
 - Not yet measured against a real model; the baseline in section 1 is the comparison to beat.
 
+Phase 2 is built in its first step (see [ADR 0013](adr/0013-site-owned-layouts-with-typed-slots.md)):
+- Layouts are folders (`layout.yml`, `template.njk`, `style.css`) with typed slots, and a page is one YAML file with a title per language and slot values.
+- Styles of a layout are nested under `body[data-layout="name"]` by the generator, with keyframes and font-face kept outside.
+- `design/labels.yml` holds interface words per language. The layout guard refuses visible words in any template and shell, page names in any language, picture addresses and `content:` words in any design file.
+- The agent sees a catalog of layouts (purpose, slot signature, pages using it) in the system prompt, and has `list_layouts`, `read_layout`, `write_layout`, `fork_layout`, `delete_layout`, `replace_layout`.
+- After a design change the tool lists words a page no longer shows (`lostContent`, from the generated pages).
+- Not built yet: reusable sections shared by several layouts (the starter layouts repeat their markup), the patch tools of Phase 3, and a browser-based check that a slot is visible (Phase 4). The importer package writes the new page format but only knows the old fixed layouts.
+
 ## 3. Phases
 
 Each phase can ship alone. The order is by value over effort, except that Phase 2 is the foundation for most of what follows.

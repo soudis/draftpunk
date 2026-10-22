@@ -3,41 +3,37 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import nunjucks from 'nunjucks'
-import {
-  type EventDoc,
-  type Lang,
-  type PageDoc,
-  type PlaceDoc,
-  contentPagePath,
-  listLayoutNames,
-  pageLayouts,
-  listPageSlugs,
-  readPageFile,
-  readYaml,
-  renderContent,
-  writePageFile,
-} from './content'
+import { type EventDoc, type Lang, type PlaceDoc, readYaml, renderContent } from './content'
 import { buildMonths, toIcal, weekdayLabels, type CalendarEvent } from './calendar'
 import {
   eventContentFile,
   markBody,
   markContent,
-  markContentValue,
   pageContentFile,
   placeContentFile,
   plainContent,
   revealContentHints,
 } from './hints'
 import {
+  layoutExists,
+  layoutFolder,
+  layoutTemplatePath,
+  listLayoutNames,
+  pageLayouts,
+  readLayout,
+  scopeLayoutCss,
+} from './layouts'
+import {
   languageIds,
-  layoutHasTemplate,
   localeFor,
   readEventFields,
-  readLayoutSections,
+  readLabels,
   readSiteConfig,
   shownEventFields,
   type SiteConfig,
 } from './model'
+import { listPageSlugs, pageHasLanguage, readPage, writePage, type PageFile } from './pages'
+import { resolveSlots } from './slots'
 
 export type GenerateResult = {
   pages: number
@@ -67,14 +63,10 @@ export function generate(root: string, outDir = path.join(root, 'dist'), options
   }
 }
 
-function shapesDir(): string {
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../shapes')
-}
-
 function generateInto(root: string, outDir: string, hints: boolean): GenerateResult {
   const designDir = path.join(root, 'design')
   const site = readSiteConfig(root)
-  const env = nunjucks.configure([designDir, shapesDir()], { autoescape: true, noCache: true, throwOnUndefined: false })
+  const env = nunjucks.configure([designDir], { autoescape: true, noCache: true, throwOnUndefined: false })
   env.addFilter('plain', (value: unknown) => (typeof value === 'string' ? plainContent(value) : value))
   env.addFilter('formatDay', (iso: string, lang: Lang) => {
     const date = new Date(iso)
@@ -91,7 +83,7 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
 
   fs.mkdirSync(outDir, { recursive: true })
   copyMedia(path.join(root, 'media'), path.join(outDir, 'media'))
-  buildCss(designDir, path.join(outDir, 'assets', 'styles.css'), shapesDir())
+  buildCss(designDir, path.join(outDir, 'assets', 'styles.css'))
 
   const navFile = readYaml<NavFile | NavItem[]>(path.join(designDir, 'nav.yml'), [])
   const menu = Array.isArray(navFile) ? navFile : (navFile.menu ?? [])
@@ -104,13 +96,14 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
   const news = pages
     .filter((page) => page.lang === defaultLang && page.date)
     .sort((a, b) => (a.date! < b.date! ? 1 : -1))
-  const selected = (home.news ?? []).map((slug) => news.find((page) => page.slug === slug)).filter((page): page is PageDoc => Boolean(page))
+  const selected = (home.news ?? []).map((slug) => news.find((page) => page.slug === slug)).filter((page): page is PageView => Boolean(page))
   const homeNews = (selected.length > 0 ? selected : news.slice(0, 3)).map((page) => page.slug)
 
   const fields = readEventFields(root)
   let pageCount = 0
   for (const language of site.languages) {
     const lang = language.id
+    env.addGlobal('labels', readLabels(root, lang))
     for (const page of pages.filter((item) => item.lang === lang)) {
       const url = pageUrl(page.slug, lang, site)
       writeHtml(outDir, url, renderPage(env, designDir, page, lang, site, menu, footer, pages, homeNews, events, places, hints), hints)
@@ -163,30 +156,19 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
 
 export function replaceLayout(root: string, from: string, to: string): string[] {
   if (from === to) return []
-  const layouts = new Set(listLayoutNames(path.join(root, 'design')))
-  if (!layouts.has(to)) throw new Error(`Layout ${to} does not exist`)
+  const designDir = path.join(root, 'design')
+  if (!layoutExists(designDir, to)) throw new Error(`Layout ${to} does not exist`)
   if ((['event', 'calendar', 'archive'] as string[]).includes(from)) {
     throw new Error(`Layout ${from} is part of the calendar and archive. Overwrite the file instead of removing it.`)
   }
   const updated: string[] = []
-  const pagesDir = path.join(root, 'content', 'pages')
-  if (!fs.existsSync(pagesDir)) return updated
   for (const slug of listPageSlugs(root)) {
-    let touched = false
-    for (const lang of languageIds(root)) {
-      const file = contentPagePath(root, slug, lang)
-      if (!fs.existsSync(file)) continue
-      const doc = readPageFile(file, slug, lang)
-      if (doc.layout !== from) continue
-      writePageFile(file, { ...doc, layout: to })
-      touched = true
-    }
-    if (touched) updated.push(slug)
+    const page = readPage(root, slug)
+    if (!page || page.layout !== from) continue
+    writePage(root, { ...page, layout: to })
+    updated.push(slug)
   }
-  for (const ext of ['.njk', '.yml']) {
-    const layoutFile = path.join(root, 'design', 'layouts', `${from}${ext}`)
-    if (fs.existsSync(layoutFile)) fs.rmSync(layoutFile)
-  }
+  fs.rmSync(layoutFolder(designDir, from), { recursive: true, force: true })
   return updated
 }
 
@@ -195,15 +177,19 @@ export function pageLayoutsOrThrow(root: string, layout: string): void {
   if (!names.includes(layout)) throw new Error(`Unknown layout ${layout}. Choose one of: ${names.join(', ')}`)
 }
 
-function loadPages(root: string): PageDoc[] {
-  const pages: PageDoc[] = []
+type PageView = { slug: string; lang: Lang; layout: string; title: string; date?: string; file: PageFile }
+
+function loadPages(root: string): PageView[] {
+  const views: PageView[] = []
+  const languages = languageIds(root)
   for (const slug of listPageSlugs(root)) {
-    for (const lang of languageIds(root)) {
-      const file = contentPagePath(root, slug, lang)
-      if (fs.existsSync(file)) pages.push(readPageFile(file, slug, lang))
+    const file = readPage(root, slug)
+    if (!file) continue
+    for (const lang of languages) {
+      if (pageHasLanguage(file, lang)) views.push({ slug, lang, layout: file.layout, title: file.title[lang], date: file.date, file })
     }
   }
-  return pages
+  return views
 }
 
 function loadPlaces(root: string): Map<string, PlaceDoc> {
@@ -238,76 +224,74 @@ function emptyEvent(slug: string): EventDoc {
 function renderPage(
   env: nunjucks.Environment,
   designDir: string,
-  page: PageDoc,
+  page: PageView,
   lang: Lang,
   site: SiteConfig,
   nav: NavItem[],
   footer: NavItem[],
-  pages: PageDoc[],
+  pages: PageView[],
   homeNews: string[],
   events: EventDoc[],
   places: Map<string, PlaceDoc>,
   hints: boolean,
 ): string {
-  const file = pageContentFile(page.slug, lang)
+  const file = pageContentFile(page.slug)
   const news = homeNews
     .map((slug) => pages.find((item) => item.slug === slug && item.lang === lang))
-    .filter((item): item is PageDoc => Boolean(item))
+    .filter((item): item is PageView => Boolean(item))
     .map((item) => {
-      const newsFile = pageContentFile(item.slug, lang)
+      const newsFile = pageContentFile(item.slug)
       return {
-        title: newsFile ? tag(item.title, newsFile, 'title', hints) : item.title,
+        title: newsFile ? tag(item.title, newsFile, `title.${lang}`, hints) : item.title,
         href: pageUrl(item.slug, lang, site),
         date: item.date,
       }
     })
   const upcoming = upcomingEvents(events, lang, site, places, hints).slice(0, 5)
-  const hasPage = (language: string) =>
-    pages.some((item) => item.slug === page.slug && item.lang === language && item.body.trim().length > 0)
+  const hasPage = (language: string) => pages.some((item) => item.slug === page.slug && item.lang === language)
+  if (!layoutExists(designDir, page.layout)) throw new Error(`Page ${page.slug} uses layout ${page.layout}, which does not exist`)
+  const layout = readLayout(designDir, page.layout)
+  const slots = resolveSlots(layout.slots, page.file.slots, lang, {
+    text: (source, at) => (file && hints ? markContent(source, { file, field: at }) : source),
+    markdown: (source, at) => safe(file && hints ? markBody(source, file, at) : renderContent(source)),
+  })
   const context = baseContext(
-    file ? tag(page.title, file, 'title', hints) : page.title,
-    file && hints ? markBody(page.body, file, 'body') : renderContent(page.body),
+    file ? tag(page.title, file, `title.${lang}`, hints) : page.title,
     lang,
     site,
     nav,
     footer,
     (language) => pageUrl(page.slug, language, site),
     hasPage,
-    {
-      news,
-      upcoming,
-      date: page.date,
-      hero: shown(page.data.hero, file, 'hero', hints),
-      cards: shown(page.data.cards, file, 'cards', hints),
-      band: shown(page.data.band, file, 'band', hints),
-      images: shown(page.data.images, file, 'images', hints),
-      email: shown(page.data.email, file, 'email', hints),
-      groups: shown(page.data.groups, file, 'groups', hints),
-      slots: file && hints ? markContentValue(pageSlots(page.data), file, 'slots') : pageSlots(page.data),
-    },
+    { news, upcoming, date: page.date, slots },
   )
-  if (layoutHasTemplate(designDir, page.layout)) return env.render(`layouts/${page.layout}.njk`, context)
-  const sections = readLayoutSections(designDir, page.layout)
-  if (!sections) throw new Error(`Layout ${page.layout} has no template and no sections`)
-  return env.render('page.njk', { ...context, sections })
+  return withLayoutAttribute(env.render(layoutTemplatePath(page.layout), context), page.layout)
 }
 
-function renderArchive(env: nunjucks.Environment, lang: Lang, site: SiteConfig, nav: NavItem[], footer: NavItem[], pages: PageDoc[], hints: boolean): string {
+/** Mark the page with its layout, so the layout's own styles apply to it and to nothing else. */
+function withLayoutAttribute(html: string, layout: string): string {
+  return html.replace(/<body\b([^>]*)>/i, (_all, attrs: string) => `<body${attrs} data-layout="${layout}">`)
+}
+
+function renderArchive(env: nunjucks.Environment, lang: Lang, site: SiteConfig, nav: NavItem[], footer: NavItem[], pages: PageView[], hints: boolean): string {
   const items = pages
     .filter((page) => page.lang === lang && page.date)
     .sort((a, b) => (a.date! < b.date! ? 1 : -1))
     .map((page) => {
-      const file = pageContentFile(page.slug, lang)
+      const file = pageContentFile(page.slug)
       return {
-        title: file ? tag(page.title, file, 'title', hints) : page.title,
+        title: file ? tag(page.title, file, `title.${lang}`, hints) : page.title,
         href: pageUrl(page.slug, lang, site),
         date: page.date,
       }
     })
   const has = () => true
-  return env.render(
-    'layouts/archive.njk',
-    baseContext(heading(lang, 'Aktuelles', 'News'), '', lang, site, nav, footer, (language) => routePath('/blog/', language, site), has, { items }),
+  return withLayoutAttribute(
+    env.render(
+      layoutTemplatePath('archive'),
+      baseContext(heading(lang, 'Aktuelles', 'News'), lang, site, nav, footer, (language) => routePath('/blog/', language, site), has, { items }),
+    ),
+    'archive',
   )
 }
 
@@ -324,14 +308,17 @@ function renderCalendar(
   const dated = calendarEvents(events, lang, site, hints)
   const months = buildMonths(dated, lang, new Date(), 5, site.timezone)
   const has = () => true
-  return env.render(
-    'layouts/calendar.njk',
-    baseContext(heading(lang, 'Kalender', 'Calendar'), '', lang, site, nav, footer, (language) => routePath('/kalender/', language, site), has, {
-      months,
-      weekdays: weekdayLabels(lang),
-      upcoming: upcomingEvents(events, lang, site, places, hints),
-      ical: `/kalender/${site.id}.ics`,
-    }),
+  return withLayoutAttribute(
+    env.render(
+      layoutTemplatePath('calendar'),
+      baseContext(heading(lang, 'Kalender', 'Calendar'), lang, site, nav, footer, (language) => routePath('/kalender/', language, site), has, {
+        months,
+        weekdays: weekdayLabels(lang),
+        upcoming: upcomingEvents(events, lang, site, places, hints),
+        ical: `/kalender/${site.id}.ics`,
+      }),
+    ),
+    'calendar',
   )
 }
 
@@ -350,15 +337,20 @@ function renderEvent(
   const file = eventContentFile(event.slug)
   const bodySource = event.body[lang] || ''
   const has = (language: string) => Boolean((event.body[language] ?? '').trim())
-  return env.render(
-    'layouts/event.njk',
-    baseContext(eventTitle(event, lang, hints), file && hints ? markBody(bodySource, file, `body.${lang}`) : renderContent(bodySource), lang, site, nav, footer, (language) => eventUrl(event.slug, language, site), has, {
-      dates: event.dates,
-      place: placeText(place, lang, hints) || event.place,
-      address: placeAddress(place, hints),
-      categories: event.categories,
-      shownFields: shownEventFields(event, fields, lang),
-    }),
+  const body = safe(file && hints ? markBody(bodySource, file, `body.${lang}`) : renderContent(bodySource))
+  return withLayoutAttribute(
+    env.render(
+      layoutTemplatePath('event'),
+      baseContext(eventTitle(event, lang, hints), lang, site, nav, footer, (language) => eventUrl(event.slug, language, site), has, {
+        body,
+        dates: event.dates,
+        place: placeText(place, lang, hints) || event.place,
+        address: placeAddress(place, hints),
+        categories: event.categories,
+        shownFields: shownEventFields(event, fields, lang),
+      }),
+    ),
+    'event',
   )
 }
 
@@ -369,15 +361,17 @@ function renderEventIndex(env: nunjucks.Environment, lang: Lang, site: SiteConfi
     date: event.dates[0]?.start.slice(0, 10),
   }))
   const has = () => true
-  return env.render(
-    'layouts/archive.njk',
-    baseContext(heading(lang, 'Termine', 'Events'), '', lang, site, nav, footer, (language) => routePath('/events/', language, site), has, { items }),
+  return withLayoutAttribute(
+    env.render(
+      layoutTemplatePath('archive'),
+      baseContext(heading(lang, 'Termine', 'Events'), lang, site, nav, footer, (language) => routePath('/events/', language, site), has, { items }),
+    ),
+    'archive',
   )
 }
 
 function baseContext(
   title: string,
-  body: string,
   lang: Lang,
   site: SiteConfig,
   nav: NavItem[],
@@ -392,7 +386,6 @@ function baseContext(
     .map((language) => ({ href: hrefFor(language.id), label: language.label, hreflang: language.id }))
   return {
     title,
-    body,
     lang,
     name: site.name,
     prefix,
@@ -447,22 +440,14 @@ function calendarEvents(events: EventDoc[], lang: Lang, site: SiteConfig, hints:
   )
 }
 
-function pageSlots(data: Record<string, unknown>): Record<string, unknown> {
-  const slots = { ...data }
-  delete slots.layout
-  delete slots.title
-  delete slots.date
-  return slots
+// Nunjucks escapes everything it prints. A value that is already HTML must say so.
+function safe(html: string): unknown {
+  return (nunjucks.runtime as unknown as { markSafe: (value: string) => unknown }).markSafe(html)
 }
 
 function tag(text: string, file: string, field: string, hints: boolean): string {
   if (!hints || !text) return text
   return markContent(text, { file, field })
-}
-
-function shown(value: unknown, file: string | null, field: string, hints: boolean): unknown {
-  if (!hints || !file) return value
-  return markContentValue(value, file, field)
 }
 
 function eventTitle(event: EventDoc, lang: string, hints: boolean): string {
@@ -506,6 +491,12 @@ function routePath(urlPath: string, lang: string, site: SiteConfig): string {
   const prefix = prefixFor(lang, site)
   if (urlPath === '/') return prefix ? `${prefix}/` : '/'
   return `${prefix}${urlPath}`
+}
+
+/** Where the generated page of a slug and language is written. */
+export function pageOutputFile(root: string, outDir: string, slug: string, lang: Lang): string {
+  const url = pageUrl(slug, lang, readSiteConfig(root))
+  return path.join(outDir, url.endsWith('/') ? `${url}index.html` : url)
 }
 
 function pageUrl(slug: string, lang: Lang, site: SiteConfig): string {
@@ -552,18 +543,23 @@ function copyMedia(from: string, to: string): void {
   }
 }
 
-function buildCss(designDir: string, outFile: string, shapes: string): void {
+function buildCss(designDir: string, outFile: string): void {
   fs.mkdirSync(path.dirname(outFile), { recursive: true })
   const cli = tailwindCli()
-  const relative = path.relative(designDir, shapes).split(path.sep).join('/')
   const original = fs.readFileSync(path.join(designDir, 'styles.css'), 'utf8')
   const input = path.join(designDir, '.styles.generated.css')
   const entry = tailwindEntry().replaceAll('\\', '/')
   const imported = original.includes('@import "tailwindcss";')
     ? original.replace('@import "tailwindcss";', `@import "${entry}";`)
     : `@import "${entry}";\n${original}`
-  const withSource = `${imported}\n@source "${relative}";\n`
-  fs.writeFileSync(input, withSource)
+  const layoutStyles = listLayoutNames(designDir)
+    .map((name) => {
+      const file = path.join(layoutFolder(designDir, name), 'style.css')
+      return fs.existsSync(file) ? scopeLayoutCss(name, fs.readFileSync(file, 'utf8')) : ''
+    })
+    .filter(Boolean)
+    .join('\n')
+  fs.writeFileSync(input, `${imported}\n${layoutStyles}\n`)
   try {
     const result = spawnSync(process.execPath, [cli, '--input', input, '--output', outFile], {
       cwd: designDir,

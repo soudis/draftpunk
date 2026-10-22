@@ -1,5 +1,5 @@
-import fs from 'node:fs'
-import { contentPagePath, writePageFile } from '@schlor/generator'
+import path from 'node:path'
+import { listLayoutNames, readLayout, readPage, writePage } from '@schlor/generator'
 import { contentUntouched, designHoldsNoContent, designUntouched, publishable, sentencesKept, type Scenario } from '../lib/eval'
 
 const ROOM_DE = [
@@ -16,8 +16,7 @@ const ROOM_EN = [
 ]
 
 function twoLanguagePage(root: string, slug: string, layout: string, de: { title: string; body: string }, en: { title: string; body: string }) {
-  writePageFile(contentPagePath(root, slug, 'de'), { layout, title: de.title, body: de.body, data: {} })
-  writePageFile(contentPagePath(root, slug, 'en'), { layout, title: en.title, body: en.body, data: {} })
+  writePage(root, { slug, layout, title: { de: de.title, en: en.title }, slots: { body: { de: de.body, en: en.body } } })
 }
 
 function prepareRoom(root: string) {
@@ -80,6 +79,37 @@ export const scenarios: Scenario[] = [
     ],
   },
   {
+    id: 'reuse-layout',
+    title: 'A new page of a known kind reuses or forks a layout and fills its slots',
+    turns: ['Lege eine Seite „Seminarraum“ an, ähnlich wie der Veranstaltungsraum: kurzer Text, zwei Fotos und eine E-Mail-Adresse seminar@example.org. Beide Sprachen.'],
+    prepare: (root) => {
+      writePage(root, {
+        slug: 'veranstaltungsraum',
+        layout: 'room',
+        title: { de: 'Veranstaltungsraum', en: 'Event room' },
+        slots: {
+          body: { de: ROOM_DE.join('\n\n'), en: ROOM_EN.join('\n\n') },
+          images: [{ src: '/media/raum-1.jpg', caption: { de: 'Der Raum', en: 'The room' } }],
+          email: 'raum@example.org',
+        },
+      })
+    },
+    checks: ({ root, changed }) => {
+      const page = readPage(root, 'seminarraum')
+      const designDir = path.join(root, 'design')
+      const layouts = listLayoutNames(designDir)
+      return [
+        { name: 'the seminar page exists', ok: page !== null },
+        { name: 'it has the email address', ok: JSON.stringify(page?.slots ?? {}).includes('seminar@example.org') },
+        { name: 'at most one layout was added', ok: layouts.length <= 9, detail: layouts.join(', ') },
+        { name: 'every layout has a purpose', ok: layouts.every((name) => readLayout(designDir, name).purpose.length > 0) },
+        { name: 'the other page is untouched', ok: !changed.some((file) => file.includes('pages/veranstaltungsraum')) },
+        designHoldsNoContent(root),
+        publishable(root),
+      ]
+    },
+  },
+  {
     id: 'setup-from-url',
     title: 'Setup from a public site proposes before it writes',
     network: true,
@@ -91,6 +121,6 @@ export const scenarios: Scenario[] = [
 ]
 
 function contains(root: string, slug: string, lang: string, text: string): boolean {
-  const file = contentPagePath(root, slug, lang)
-  return fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes(text)
+  const body = readPage(root, slug)?.slots.body as Record<string, string> | undefined
+  return Boolean(body?.[lang]?.includes(text))
 }

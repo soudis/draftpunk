@@ -2,27 +2,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { parse, stringify } from 'yaml'
 
-export const SECTION_SHAPES = [
-  'title',
-  'prose',
-  'hero',
-  'cards',
-  'band',
-  'pictures',
-  'email',
-  'picture-groups',
-  'link-groups',
-  'news',
-  'upcoming',
-] as const
-
-export type SectionShape = (typeof SECTION_SHAPES)[number]
-
-export type SectionDecl = {
-  shape: SectionShape
-  heading?: Record<string, string>
-}
-
 export type SiteLanguage = {
   id: string
   label: string
@@ -114,21 +93,19 @@ function validTimeZone(zone: string): string {
   }
 }
 
-export function readLayoutSections(designDir: string, name: string): SectionDecl[] | null {
-  const file = path.join(designDir, 'layouts', `${name}.yml`)
-  if (!fs.existsSync(file)) return null
-  const raw = readYamlFile<{ sections?: { shape?: string; heading?: Record<string, string> }[] }>(file, {})
-  return (raw.sections ?? []).map((section) => {
-    const shape = String(section.shape ?? '')
-    if (!SECTION_SHAPES.includes(shape as SectionShape)) {
-      throw new Error(`Layout ${name} uses an unknown section shape: ${shape}`)
+export function readLabels(root: string, lang: string): Record<string, string> {
+  const raw = readYamlFile<Record<string, unknown>>(path.join(root, 'design', 'labels.yml'), {})
+  const first = readSiteConfig(root).languages[0]?.id ?? lang
+  const labels: Record<string, string> = {}
+  for (const [key, value] of Object.entries(raw ?? {})) {
+    if (typeof value === 'string') labels[key] = value
+    else if (value && typeof value === 'object') {
+      const texts = value as Record<string, unknown>
+      const text = texts[lang] ?? texts[first] ?? Object.values(texts).find((item) => typeof item === 'string')
+      if (typeof text === 'string') labels[key] = text
     }
-    return { shape: shape as SectionShape, heading: section.heading }
-  })
-}
-
-export function layoutHasTemplate(designDir: string, name: string): boolean {
-  return fs.existsSync(path.join(designDir, 'layouts', `${name}.njk`))
+  }
+  return labels
 }
 
 export function readEventFields(root: string): EventField[] {

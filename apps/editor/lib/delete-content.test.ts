@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { initSite, writePageFile, writeYaml } from '@schlor/generator'
+import { initSite, writePage, writeYaml } from '@schlor/generator'
 import { contentTools } from './tools'
 
 const call = { toolCallId: 'delete', messages: [] }
@@ -11,17 +11,12 @@ const call = { toolCallId: 'delete', messages: [] }
 test('the content tools remove a page, an event, and a place, and discards a picture', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'schlor-delete-'))
   initSite(root)
-  writePageFile(path.join(root, 'content', 'pages', 'alt', 'de.md'), {
+  writePage(root, {
+    slug: 'alt',
     layout: 'article',
-    title: 'Altes',
+    title: { de: 'Altes', en: 'Old' },
     date: '2020-01-01',
-    body: 'Damals war hier /media/hof.png zu sehen.',
-  })
-  writePageFile(path.join(root, 'content', 'pages', 'alt', 'en.md'), {
-    layout: 'article',
-    title: 'Old',
-    date: '2020-01-01',
-    body: 'Old news.',
+    slots: { body: { de: 'Damals war hier /media/hof.png zu sehen.', en: 'Old news.' } },
   })
   writeYaml(path.join(root, 'content', 'places', 'rappachgasse.yml'), {
     slug: 'rappachgasse',
@@ -41,7 +36,7 @@ test('the content tools remove a page, an event, and a place, and discards a pic
 
   const tools = contentTools(root)
   const listed = await tools.list_pages.execute!({}, call)
-  assert.match((listed as string[]).join('\n'), /alt — Altes — 2020-01-01/)
+  assert.match((listed as string[]).join('\n'), /alt — Altes — article — 2020-01-01/)
 
   const places = await tools.list_places.execute!({}, call)
   assert.match((places as string[]).join('\n'), /rappachgasse — Rappachgasse/)
@@ -53,12 +48,11 @@ test('the content tools remove a page, an event, and a place, and discards a pic
   assert.match(String(picture), /used 1 time/)
 
   await assert.rejects(() => tools.delete_page.execute!({ slug: 'home' }, call), /The home page cannot be removed\./)
-  assert.equal(fs.existsSync(path.join(root, 'content', 'pages', 'home', 'de.md')), true)
+  assert.equal(fs.existsSync(path.join(root, 'content', 'pages', 'home.yml')), true)
 
   assert.equal(await tools.delete_page.execute!({ slug: 'alt' }, call), 'Removed page alt.')
-  assert.equal(fs.existsSync(path.join(root, 'content', 'pages', 'alt', 'de.md')), false)
-  assert.equal(fs.existsSync(path.join(root, 'content', 'pages', 'alt', 'en.md')), false)
-  assert.equal(fs.existsSync(path.join(root, 'content', 'pages', 'home', 'de.md')), true)
+  assert.equal(fs.existsSync(path.join(root, 'content', 'pages', 'alt.yml')), false)
+  assert.equal(fs.existsSync(path.join(root, 'content', 'pages', 'home.yml')), true)
 
   assert.equal(await tools.delete_place.execute!({ slug: 'rappachgasse' }, call), 'Removed place rappachgasse.')
   assert.equal(fs.existsSync(path.join(root, 'content', 'places', 'rappachgasse.yml')), false)

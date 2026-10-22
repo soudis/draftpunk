@@ -1,0 +1,13 @@
+purpose: "A page with an introduction and groups of pictures, each with a heading. For photo collections."
+slots:
+  body: markdown
+  groups:
+    type: list
+    of:
+      title: text
+      items:
+        type: list
+        of:
+          src: image
+          href: link
+          label: text

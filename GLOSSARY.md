@@ -37,7 +37,7 @@ Putting the draft back to the public site, after asking, and discarding every un
 _Avoid_: undo, unpublish
 
 **Content**:
-What a page or event says, in each language the site instance uses, with no layout of its own. For an event, this includes which option it picks for a field.
+What a page or event says, in each language the site instance uses, with no layout of its own. For a page, this is its title and its slot values. For an event, this includes which option it picks for a field.
 _Avoid_: copy, body HTML
 
 **Language**:
@@ -65,27 +65,31 @@ A view in the editor that lists the site's pictures. You can upload a picture th
 _Avoid_: library, gallery, asset manager
 
 **Layout**:
-A page shape the design owns, chosen by the content. It does not hold one page's sentences, picture addresses, or a rule that names that page. It may be a list of sections, or, when no section shape can hold the content, a private template that reads that page's slots. A section list shows fixed page fields and does not contain the markup.
-_Avoid_: template, theme
+A page shape the design owns: a folder with a purpose line, a typed slot schema, a template, and styles that apply to that layout only. A layout may serve one page or many, and a site may have any number of them. It holds no words of its own, no picture address, and no rule that names a page. The generated layouts (event, calendar, archive) take their data from the generator instead of slots.
+_Avoid_: template, theme, section list
 
 **Slot**:
-A named value on one page, in each language the site uses, that a private layout reads. It is not a section shape shared by every site.
+A named, typed value a layout shows. Its type is text, markdown, image, link, date, a list of one type, or a group of named slots. Text and markdown hold one entry per language; the others are stored once. A page's content has the shape of its layout's slots.
 _Avoid_: field, section, content structure
 
-**Section**:
-A part of a layout with one shape the generator can show. Content fills it.
-_Avoid_: field, block, component
+**Label**:
+A short interface word that belongs to the design, such as a menu entry or "Read more", kept in each language in one file and shown by templates. It is not page content.
+_Avoid_: string, translation, copy
+
+**Catalog**:
+What the agent sees of the site's layouts: each one's name, purpose, slot signature, and the pages that use it. It is built from the layout folders and is how a layout is found and reused.
+_Avoid_: registry, library
 
 **Design**:
-The shell, stylesheet, layouts, design brief, and fields of one site instance. The shell and navigation may keep text that every page shows, and do not name one page.
+The shell, stylesheet, layouts, labels, navigation, design brief, and fields of one site instance. The shell and navigation hold no page content and do not name one page.
 _Avoid_: theme, skin, data model
 
 **Design brief**:
-The current shared look of one site, and what each layout is for. Every chat starts from it. It is not a log of edits, and it does not hold one page's sentences.
+The current shared look of one site: colors, type, spacing, and mood. Every chat starts from it. It is not a log of edits, it does not hold one page's sentences, and it does not describe individual layouts, which carry their own purpose.
 _Avoid_: memory, transcript, theme
 
 **Page**:
-Content plus a layout. The home page is the front page. It can be rewritten, and it cannot be removed. When it is edited, or when a layout or the shell that names it is saved, it gets its own layout.
+A title in each language, a layout, and the values of that layout's slots. The home page is the front page. It can be rewritten, and it cannot be removed. One file holds all languages of a page.
 _Avoid_: post, article, document
 
 **Room**:

@@ -1,16 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { contentPagePath, REQUIRED_LAYOUTS, writePageFile, writeYaml, type EventDoc, type PlaceDoc } from './content'
+import { writeYaml, type EventDoc, type PlaceDoc } from './content'
 import { pageLayoutsOrThrow, replaceLayout } from './generate'
-import {
-  readEventFields,
-  readSiteConfig,
-  readYamlFile,
-  SECTION_SHAPES,
-  writeYamlFile,
-  type SectionShape,
-  type SiteLanguage,
-} from './model'
+import { GENERATED_LAYOUTS, layoutExists, listLayoutNames, removeLayoutFolder, writeLayout } from './layouts'
+import { checkPage, listPageSlugs, readPage, writePage } from './pages'
+import { readEventFields, readSiteConfig, readYamlFile, writeYamlFile, type SiteLanguage } from './model'
 
 export type SetupProposal = {
   site?: {
@@ -19,19 +13,18 @@ export type SetupProposal = {
     timezone?: string
     languages?: { id: string; label?: string; optional?: boolean }[]
   }
-  layouts?: { name: string; sections: { shape: string; heading?: Record<string, string> }[] }[]
+  layouts?: { name: string; purpose: string; slots?: unknown; template: string; style?: string }[]
   dropLayouts?: string[]
   fields?: unknown[]
   look?: { styles?: string; shell?: string; brief?: string }
   nav?: unknown
+  labels?: Record<string, Record<string, string>>
   pages?: {
     slug: string
-    lang: string
-    title: string
     layout: string
-    body: string
+    title: Record<string, string>
     date?: string
-    fields?: Record<string, unknown>
+    slots?: Record<string, unknown>
   }[]
   events?: EventDoc[]
   places?: PlaceDoc[]
@@ -84,32 +77,28 @@ export function applyProposal(root: string, proposal: SetupProposal, finish = fa
     notes.push('fields')
   }
   for (const layout of proposal.layouts ?? []) {
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(layout.name)) throw new Error(`Layout name must be lowercase words: ${layout.name}`)
-    if ((REQUIRED_LAYOUTS as readonly string[]).includes(layout.name)) {
-      throw new Error(`Layout ${layout.name} is part of the calendar and archive.`)
-    }
-    const sections = layout.sections.map((section) => {
-      if (!SECTION_SHAPES.includes(section.shape as SectionShape)) {
-        throw new Error(`Unknown section shape: ${section.shape}`)
-      }
-      return section.heading ? { shape: section.shape, heading: section.heading } : { shape: section.shape }
+    writeLayout(path.join(root, 'design'), {
+      name: layout.name,
+      purpose: layout.purpose,
+      slots: layout.slots ?? {},
+      template: layout.template,
+      style: layout.style,
     })
-    writeYamlFile(path.join(root, 'design', 'layouts', `${layout.name}.yml`), { sections })
     notes.push(`layout ${layout.name}`)
   }
   for (const name of proposal.dropLayouts ?? []) {
-    if ((REQUIRED_LAYOUTS as readonly string[]).includes(name)) {
+    if ((GENERATED_LAYOUTS as readonly string[]).includes(name)) {
       throw new Error(`Layout ${name} is part of the calendar and archive.`)
     }
     const used = pagesUsing(root, name)
-    if (used.length > 0) replaceLayout(root, name, 'article')
-    else {
-      for (const ext of ['.njk', '.yml']) {
-        const file = path.join(root, 'design', 'layouts', `${name}${ext}`)
-        if (fs.existsSync(file)) fs.rmSync(file)
-      }
-    }
+    if (used.length > 0) replaceLayout(root, name, fallbackLayout(root, name))
+    else removeLayoutFolder(path.join(root, 'design'), name)
     notes.push(`dropped ${name}`)
+  }
+  if (proposal.labels) {
+    const current = readYamlFile<Record<string, unknown>>(path.join(root, 'design', 'labels.yml'), {})
+    writeYamlFile(path.join(root, 'design', 'labels.yml'), { ...current, ...proposal.labels })
+    notes.push('labels')
   }
   if (proposal.look?.styles) {
     fs.writeFileSync(path.join(root, 'design', 'styles.css'), proposal.look.styles)
@@ -143,15 +132,11 @@ export function applyProposal(root: string, proposal: SetupProposal, finish = fa
   }
   for (const page of proposal.pages ?? []) {
     pageLayoutsOrThrow(root, page.layout)
-    const file = contentPagePath(root, page.slug, page.lang)
-    writePageFile(file, {
-      layout: page.layout,
-      title: page.title,
-      date: page.date,
-      body: page.body,
-      data: { ...(page.fields ?? {}) },
-    })
-    notes.push(`page ${page.slug} ${page.lang}`)
+    const next = { slug: page.slug, layout: page.layout, date: page.date, title: page.title ?? {}, slots: page.slots ?? {} }
+    const errors = checkPage(root, next)
+    if (errors.length > 0) throw new Error(`Page ${page.slug}: ${errors.join('; ')}`)
+    writePage(root, next)
+    notes.push(`page ${page.slug}`)
   }
   if (finish) {
     writeYamlFile(path.join(root, 'design', 'setup.yml'), { accepted: true })
@@ -167,16 +152,13 @@ function normalizeLanguage(lang: { id: string; label?: string; optional?: boolea
 }
 
 function pagesUsing(root: string, layout: string): string[] {
-  const pagesDir = path.join(root, 'content', 'pages')
-  if (!fs.existsSync(pagesDir)) return []
-  const found: string[] = []
-  const walk = (dir: string) => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const file = path.join(dir, entry.name)
-      if (entry.isDirectory()) walk(file)
-      else if (entry.name.endsWith('.md') && fs.readFileSync(file, 'utf8').includes(`layout: ${layout}`)) found.push(file)
-    }
-  }
-  walk(pagesDir)
-  return found
+  return listPageSlugs(root).filter((slug) => readPage(root, slug)?.layout === layout)
+}
+
+function fallbackLayout(root: string, dropped: string): string {
+  const designDir = path.join(root, 'design')
+  if (layoutExists(designDir, 'article') && dropped !== 'article') return 'article'
+  const other = listLayoutNames(designDir).find((name) => name !== dropped && !(GENERATED_LAYOUTS as readonly string[]).includes(name))
+  if (!other) throw new Error(`No other layout to move the pages of ${dropped} to`)
+  return other
 }

@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import TurndownService from 'turndown'
-import { initSite, writePageFile, writeYaml } from '@schlor/generator'
+import { initSite, writePage, writeYaml } from '@schlor/generator'
 import { parseIcal, splitLanguages, type IcalEvent } from './ical'
 import { heroImage, logoImage, parseMenus, rewriteLinks, structureHtml, upgradeImages } from './structure'
 
@@ -68,11 +68,11 @@ export async function importWordPress(root: string, origin = ORIGIN): Promise<{ 
       if (local) hero.image = local
       structured.data.hero = hero
     }
-    writePageFile(path.join(root, 'content', 'pages', slug, 'de.md'), {
+    writePage(root, {
+      slug,
       layout,
-      title: pageTitle(page, layout),
-      body: structured.body,
-      data: structured.data,
+      title: { de: pageTitle(page, layout) },
+      slots: slotsFor(layout, structured.body, structured.data),
     })
   }
 
@@ -85,11 +85,12 @@ export async function importWordPress(root: string, origin = ORIGIN): Promise<{ 
     console.log(`news ${slug}`)
     const date = post.date.slice(0, 10)
     const body = rewriteLinks(await toMarkdown(post.content.rendered, turndown, images, mediaDir))
-    writePageFile(path.join(root, 'content', 'pages', slug, 'de.md'), {
+    writePage(root, {
+      slug,
       layout: 'article',
-      title: decodeHtml(post.title.rendered),
+      title: { de: decodeHtml(post.title.rendered) },
       date,
-      body,
+      slots: slotsFor('article', body, {}),
     })
     if (startseite && post.categories?.includes(startseite)) news.push({ slug, date })
   }
@@ -120,6 +121,45 @@ export async function importWordPress(root: string, origin = ORIGIN): Promise<{ 
   )
 
   return { pages: pages.length, news: posts.length, events: series.length, images: images.size }
+}
+
+type Fields = Record<string, unknown>
+
+const german = (text: unknown): { de: string } | undefined => (typeof text === 'string' && text.trim() ? { de: text } : undefined)
+
+function compact(value: Fields): Fields {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined && item !== ''))
+}
+
+// The importer reads the old site into a few fixed shapes. Each shape is a slot of the starter layouts.
+function slotsFor(layout: string, body: string, data: Fields): Fields {
+  const slots: Fields = {}
+  if (body.trim()) slots.body = { de: body }
+  const list = (value: unknown) => (Array.isArray(value) ? (value as Fields[]) : [])
+  if (layout === 'home') {
+    const hero = (data.hero ?? {}) as Fields
+    const band = (data.band ?? {}) as Fields
+    Object.assign(slots, compact({ lede: german(hero.lede), hero_image: hero.image }))
+    slots.cards = list(data.cards).map((card) => compact({ title: german(card.title), text: german(card.text), href: card.href, image: card.image }))
+    slots.band = compact({ title: german(band.title), text: german(band.text), href: band.href })
+  }
+  if (layout === 'room') {
+    slots.images = list(data.images).map((image) => compact({ src: image.src, caption: german(image.caption) }))
+    if (typeof data.email === 'string') slots.email = data.email
+  }
+  if (layout === 'gallery') {
+    slots.groups = list(data.groups).map((group) => ({
+      title: german(group.title),
+      items: list(group.items).map((item) => compact({ src: item.src, href: item.href, label: german(item.label) })),
+    }))
+  }
+  if (layout === 'allies') {
+    slots.groups = list(data.groups).map((group) => ({
+      title: german(group.title),
+      links: list(group.links).map((link) => compact({ href: link.href, label: german(link.label), image: link.image })),
+    }))
+  }
+  return slots
 }
 
 function pageTitle(doc: WpDoc, layout: string): string {

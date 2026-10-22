@@ -1,0 +1,8 @@
+layout: article
+title:
+  de: Datenschutz
+  en: Privacy
+slots:
+  body:
+    de: Beschreibe, welche Daten diese Website speichert und wer dazu Auskunft gibt.
+    en: Describe which data this website keeps, and who can be asked about it.

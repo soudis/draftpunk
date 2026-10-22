@@ -1,15 +1,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import matter from 'gray-matter'
 import MarkdownIt from 'markdown-it'
 import multimdTable from 'markdown-it-multimd-table'
 import sanitizeHtml from 'sanitize-html'
 import { parse, stringify } from 'yaml'
-import { languageIds, requiredLanguages } from './model'
 
 export type Lang = string
-
-export const REQUIRED_LAYOUTS = ['event', 'calendar', 'archive'] as const
 
 const markdown = new MarkdownIt({ html: true, linkify: true, typographer: true }).use(multimdTable as never)
 
@@ -309,54 +305,6 @@ export function renderContent(source: string): string {
   })
 }
 
-export type PageDoc = {
-  slug: string
-  lang: Lang
-  layout: string
-  title: string
-  date?: string
-  body: string
-  data: Record<string, unknown>
-}
-
-export function readPageFile(file: string, slug: string, lang: Lang): PageDoc {
-  const raw = fs.readFileSync(file, 'utf8')
-  const parsed = matter(raw)
-  const data = parsed.data as Record<string, unknown>
-  const layout = String(data.layout ?? 'article')
-  const title = String(data.title ?? slug)
-  const date = data.date ? String(data.date).slice(0, 10) : undefined
-  return { slug, lang, layout, title, date, body: parsed.content, data }
-}
-
-export function writePageFile(
-  file: string,
-  doc: Pick<PageDoc, 'layout' | 'title' | 'date' | 'body'> & { data?: Record<string, unknown> },
-): void {
-  const data = defined({ ...(doc.data ?? {}) }) as Record<string, unknown>
-  delete data.layout
-  delete data.title
-  delete data.date
-  data.layout = doc.layout
-  data.title = doc.title
-  if (doc.date) data.date = doc.date
-  const front = matter.stringify(doc.body.trim() + '\n', data)
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  fs.writeFileSync(file, front)
-}
-
-function defined(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(defined)
-  if (value && typeof value === 'object') {
-    const out: Record<string, unknown> = {}
-    for (const [key, item] of Object.entries(value)) {
-      if (item !== undefined) out[key] = defined(item)
-    }
-    return out
-  }
-  return value
-}
-
 export function readYaml<T>(file: string, fallback: T): T {
   if (!fs.existsSync(file)) return fallback
   return parse(fs.readFileSync(file, 'utf8')) as T
@@ -365,22 +313,6 @@ export function readYaml<T>(file: string, fallback: T): T {
 export function writeYaml(file: string, value: unknown): void {
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(file, stringify(value))
-}
-
-export function listLayoutNames(designDir: string): string[] {
-  const dir = path.join(designDir, 'layouts')
-  if (!fs.existsSync(dir)) return []
-  const names = new Set<string>()
-  for (const name of fs.readdirSync(dir)) {
-    const match = /^(.+)\.(?:njk|yml)$/.exec(name)
-    if (match?.[1]) names.add(match[1])
-  }
-  return [...names].sort()
-}
-
-export function pageLayouts(designDir: string): string[] {
-  const required = new Set<string>(REQUIRED_LAYOUTS)
-  return listLayoutNames(designDir).filter((name) => !required.has(name))
 }
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)*$/
@@ -394,32 +326,6 @@ export function assertInside(root: string, target: string): void {
   if (rel.startsWith('..') || path.isAbsolute(rel)) {
     throw new Error(`Path escapes the site: ${target}`)
   }
-}
-
-export function listPageSlugs(root: string): string[] {
-  const base = path.join(root, 'content', 'pages')
-  const slugs: string[] = []
-  const walk = (dir: string, slug: string) => {
-    if (!fs.existsSync(dir)) return
-    const languages = new Set(languageIds(root))
-    const hasDoc = fs.readdirSync(dir).some((name) => {
-      const match = /^([a-z]{2}(?:-[a-z0-9]+)*)\.md$/.exec(name)
-      return Boolean(match && languages.has(match[1]))
-    })
-    if (slug && hasDoc) slugs.push(slug)
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory()) walk(path.join(dir, entry.name), slug ? `${slug}/${entry.name}` : entry.name)
-    }
-  }
-  walk(base, '')
-  return slugs.sort()
-}
-
-export function contentPagePath(root: string, slug: string, lang: Lang): string {
-  assertSlug(slug)
-  const file = path.join(root, 'content', 'pages', slug, `${lang}.md`)
-  assertInside(root, file)
-  return file
 }
 
 export function designFilePath(root: string, rel: string): string {
@@ -437,7 +343,8 @@ export function designFilePath(root: string, rel: string): string {
     normalized === 'fields.yml' ||
     normalized === 'setup.yml' ||
     normalized === 'proposal.yml' ||
-    /^layouts\/[a-z0-9]+(?:-[a-z0-9]+)*\.(?:njk|yml)$/.test(normalized)
+    normalized === 'labels.yml' ||
+    /^layouts\/[a-z0-9]+(?:-[a-z0-9]+)*\/(?:layout\.yml|template\.njk|style\.css)$/.test(normalized)
   if (!allowed) throw new Error(`Design path is not allowed: ${rel}`)
   const file = path.join(root, 'design', normalized)
   assertInside(path.join(root, 'design'), file)
@@ -459,46 +366,4 @@ export type PlaceDoc = {
   name: Record<string, string>
   address?: string
   onPremises: boolean
-}
-
-// A page has content when it has a body, or when a layout reads its slots and they are filled.
-function hasContent(page: PageDoc): boolean {
-  if (page.body.trim().length > 0) return true
-  return Object.entries(page.data).some(([key, value]) => !['layout', 'title', 'date'].includes(key) && !isEmpty(value))
-}
-
-function isEmpty(value: unknown): boolean {
-  if (value === undefined || value === null) return true
-  if (typeof value === 'string') return value.trim() === ''
-  if (Array.isArray(value)) return value.every(isEmpty)
-  if (typeof value === 'object') return Object.values(value as Record<string, unknown>).every(isEmpty)
-  return false
-}
-
-export function bilingualGaps(root: string): string[] {
-  const gaps: string[] = []
-  const required = requiredLanguages(root)
-  for (const slug of listPageSlugs(root)) {
-    for (const lang of required) {
-      const file = contentPagePath(root, slug, lang)
-      if (!fs.existsSync(file) || !hasContent(readPageFile(file, slug, lang))) gaps.push(`page ${slug} ${lang}`)
-    }
-  }
-  const eventsDir = path.join(root, 'content', 'events')
-  if (fs.existsSync(eventsDir)) {
-    for (const name of fs.readdirSync(eventsDir).filter((n) => n.endsWith('.yml'))) {
-      const event = readYaml<EventDoc>(path.join(eventsDir, name), {
-        slug: name,
-        title: {},
-        body: {},
-        place: '',
-        categories: [],
-        dates: [],
-      })
-      for (const lang of required) {
-        if (!event.title[lang]?.trim() || !event.body[lang]?.trim()) gaps.push(`event ${name} ${lang}`)
-      }
-    }
-  }
-  return gaps
 }

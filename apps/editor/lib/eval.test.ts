@@ -44,9 +44,11 @@ test('a scenario that does what was asked passes, and the report counts tokens a
           input: {
             slug: 'kontakt',
             layout: 'article',
-            languages: {
-              de: { title: 'Kontakt', body: 'Ruf uns an: 0660 123 4567.\n\nOder schreib an hallo@example.org.' },
-              en: { title: 'Contact', body: 'Call us: 0660 123 4567.\n\nOr write to hallo@example.org.' },
+            slots: {
+              body: {
+                de: 'Ruf uns an: 0660 123 4567.\n\nOder schreib an hallo@example.org.',
+                en: 'Call us: 0660 123 4567.\n\nOr write to hallo@example.org.',
+              },
             },
           },
         },
@@ -69,13 +71,13 @@ test('a scenario that does what was asked passes, and the report counts tokens a
 
 test('a failed tool call is counted with its message, and a design change fails the content-only checks', async () => {
   const model = scripted([
-    { calls: [{ name: 'write_page', input: { slug: 'kontakt', layout: 'article', title: 'Kontakt', body: 'x'.repeat(2000) } }] },
+    { calls: [{ name: 'write_page', input: { slug: 'kontakt', title: 'Kontakt', slots: { body: 'x'.repeat(2000) } } }] },
     { calls: [{ name: 'write_design', input: { path: 'styles.css', content: 'body { color: #111; }' } }] },
     { text: 'Fertig.' },
   ])
   const result = await runScenario(model, contentOnly, { modelName: 'script' })
   assert.equal(result.toolFailures, 1)
-  assert.match(result.failures[0].error, /languages is required/)
+  assert.match(result.failures[0].error, /layout is required/)
   assert.equal(result.failures[0].error.includes('xxxx'), false)
   const failed = result.checks.filter((check) => !check.ok).map((check) => check.name)
   assert.ok(failed.includes('no design file changed'))

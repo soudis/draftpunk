@@ -1,0 +1,8 @@
+layout: article
+title:
+  de: Kontakt
+  en: Contact
+slots:
+  body:
+    de: Schreib dem Projekt an kontakt@example.org.
+    en: Write to the project at contact@example.org.

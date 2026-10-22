@@ -1,10 +1,10 @@
 # Design brief
 
-Pages are content. The shell, the layouts, and this stylesheet decide how every page looks.
+Pages are content. The shell, the layouts, and the stylesheets decide how every page looks.
 
 Use calm, neutral colors. Type is Source Sans for text and Source Serif for headings. Corners stay square. The header carries the project name and the main sections. The footer carries the legal links and the year.
 
-A page chooses one layout: home, article, room, gallery, or allies. Each of those layouts is an ordered list of sections. A section has one shape: title, prose, hero, cards, band, pictures, email, picture groups, link groups, news, or upcoming. Do not invent a new shape. The calendar, the event page, and the archive are generated. Do not invent a second calendar in a page.
+Each page picks one layout. Each layout is a folder with the slots it shows, its markup, and its own styles. The page's content has the shape of those slots. The calendar, the event page, and the archive are generated. Do not invent a second calendar in a page.
 
 Content may use headings, lists, links, images, figures, and tables. It may not carry its own colors, classes, or scripts. When the design changes, every existing page, including old news, has to follow.
 

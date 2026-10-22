@@ -1,0 +1,11 @@
+purpose: "A page for a room or space: a title, an introduction, pictures with captions, and an email address to ask about it."
+slots:
+  body: markdown
+  images:
+    type: list
+    of:
+      src: image
+      caption: text
+  email:
+    type: text
+    translate: false

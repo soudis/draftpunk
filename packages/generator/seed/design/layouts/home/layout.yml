@@ -1,0 +1,17 @@
+purpose: "The front page: a hero with a lede and a picture, an introduction, cards that lead to other pages, a call-to-action band, then the latest news and upcoming events."
+slots:
+  lede: text
+  hero_image: image
+  body: markdown
+  cards:
+    type: list
+    of:
+      title: text
+      text: text
+      href: link
+      image: image
+  band:
+    title: text
+    text: text
+    label: text
+    href: link

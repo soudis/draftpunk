@@ -1,0 +1,8 @@
+layout: article
+title:
+  de: Impressum
+  en: Imprint
+slots:
+  body:
+    de: Name und Adresse des Projekts kommen hierher.
+    en: The project's name and address go here.

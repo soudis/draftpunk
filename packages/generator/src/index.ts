@@ -18,10 +18,32 @@ export function initSite(root: string): void {
   if (fs.existsSync(seedMedia)) fs.cpSync(seedMedia, media, { recursive: true })
 }
 
-export { bilingualGaps, renderContent, designFilePath, contentPagePath, assertSlug, listPageSlugs, writePageFile, writeYaml, readYaml, readPageFile } from './content'
-export { generate, replaceLayout, pageLayoutsOrThrow } from './generate'
+export { renderContent, designFilePath, assertSlug, writeYaml, readYaml } from './content'
+export { generate, pageOutputFile, replaceLayout, pageLayoutsOrThrow } from './generate'
+export { lostContent } from './preservation'
 export { applyContentCorrection } from './hints'
+export {
+  GENERATED_LAYOUTS,
+  REQUIRED_LAYOUTS,
+  checkLayout,
+  forkLayout,
+  formatCatalog,
+  layoutCatalog,
+  layoutExists,
+  listLayoutNames,
+  pageLayouts,
+  readLayout,
+  readLayoutFiles,
+  removeLayoutFolder,
+  slotReferences,
+  writeLayout,
+} from './layouts'
+export { bilingualGaps, checkPage, deletePage, listPageSlugs, pageFilePath, pageHasLanguage, pagesByLayout, readPage, writePage } from './pages'
 export { applyProposal, readProposal, recordProposal } from './setup'
-export { readSiteConfig, setupAccepted, readEventFields, SECTION_SHAPES } from './model'
-export type { Lang, PageDoc, EventDoc, PlaceDoc } from './content'
+export { readLabels, readSiteConfig, setupAccepted, readEventFields } from './model'
+export { SLOT_TYPES, parseSlotSchema, resolveSlots, serializeSlotSchema, slotSignature, slotTexts, validateSlots } from './slots'
+export type { Lang, EventDoc, PlaceDoc } from './content'
+export type { CatalogEntry, LayoutCheck, LayoutDef, LayoutFiles } from './layouts'
+export type { PageFile } from './pages'
 export type { SetupProposal } from './setup'
+export type { SlotDef, SlotSchema } from './slots'

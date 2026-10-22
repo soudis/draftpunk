@@ -153,7 +153,11 @@ export function designHoldsNoContent(root: string): Check {
   const pages = namedPages(root)
   const offenders: string[] = []
   const designDir = path.join(root, 'design')
-  const files = [...listFiles(path.join(designDir, 'layouts')).map((file) => `layouts/${file}`), 'shell.njk']
+  const files = [
+    ...listFiles(path.join(designDir, 'layouts')).flatMap((name) => [`layouts/${name}/template.njk`, `layouts/${name}/style.css`]),
+    'shell.njk',
+    'styles.css',
+  ]
   for (const rel of files) {
     const file = path.join(designDir, rel)
     if (!fs.existsSync(file)) continue

@@ -1,6 +1,5 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import matter from 'gray-matter'
 import { parseDocument, Scalar } from 'yaml'
 import { contentBlocks, listItemSlices, markdownVisible, renderContent } from './content'
 
@@ -11,7 +10,7 @@ const NOT_IN = 'That text is not in the content.'
 const TWICE = 'That phrase appears twice in this text.'
 const HINT = 'That hint is not a content field.'
 
-const PAGE_FILE = /^content\/pages\/[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)*\/[a-z]{2}(?:-[a-z0-9]+)*\.md$/
+const PAGE_FILE = /^content\/pages\/[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)*\.yml$/
 const EVENT_FILE = /^content\/events\/[a-z0-9]+(?:-[a-z0-9]+)*\.yml$/
 const PLACE_FILE = /^content\/places\/[a-z0-9]+(?:-[a-z0-9]+)*\.yml$/
 const LANG = /^[a-z]{2}(?:-[a-z0-9]+)*$/
@@ -25,8 +24,8 @@ export function plainContent(value: string): string {
 }
 export type CorrectionResult = { file: string; changed: boolean } | { error: string }
 
-export function pageContentFile(slug: string, lang: string): string | null {
-  const file = `content/pages/${slug}/${lang}.md`
+export function pageContentFile(slug: string): string | null {
+  const file = `content/pages/${slug}.yml`
   return PAGE_FILE.test(file) ? file : null
 }
 
@@ -146,17 +145,9 @@ export function applyContentCorrection(root: string, hint: string, oldPhrase: st
 }
 
 function correctPage(full: string, hint: ContentHint, oldPhrase: string, nextPhrase: string): CorrectionResult {
-  const raw = fs.readFileSync(full, 'utf8')
-  if (hint.field === 'body') {
-    if (hint.block === undefined) return { error: HINT }
-    return correctPageBody(full, hint.file, raw, hint.block, hint.part, oldPhrase, nextPhrase)
-  }
-  if (hint.block !== undefined) return { error: HINT }
-  const regions = pageRegions(raw)
-  if (!regions) return { error: HINT }
-  const parts = hint.field === 'title' ? ['title'] : fieldPath(hint.field)
-  if (!parts || hint.field === 'layout' || hint.field === 'date' || hint.field === 'slug') return { error: HINT }
-  return correctScalar(full, hint.file, raw, regions.yaml, regions.yamlStart, parts, undefined, undefined, oldPhrase, nextPhrase, (nextRaw) => pageRegions(nextRaw)?.yaml ?? null)
+  const parts = fieldPath(hint.field)
+  if (!parts || (parts[0] !== 'title' && parts[0] !== 'slots')) return { error: HINT }
+  return correctDocument(full, hint.file, parts, hint.block, hint.part, oldPhrase, nextPhrase)
 }
 
 function correctEvent(full: string, hint: ContentHint, oldPhrase: string, nextPhrase: string): CorrectionResult {
@@ -192,19 +183,6 @@ function correctDocument(
 ): CorrectionResult {
   const raw = fs.readFileSync(full, 'utf8')
   return correctScalar(full, rel, raw, raw, 0, parts, block, part, oldPhrase, nextPhrase, (nextRaw) => nextRaw)
-}
-
-function correctPageBody(full: string, rel: string, raw: string, block: number, part: number | undefined, oldPhrase: string, nextPhrase: string): CorrectionResult {
-  const parsed = matter(raw)
-  if (!raw.endsWith(parsed.content)) return { error: HINT }
-  const located = locatePhrase(parsed.content, oldPhrase, block, part)
-  if ('error' in located) return located
-  const expected = parsed.content.slice(0, located.at) + nextPhrase + parsed.content.slice(located.sourceEnd)
-  if (expected === parsed.content) return { file: rel, changed: false }
-  const nextRaw = raw.slice(0, raw.length - parsed.content.length) + expected
-  if (matter(nextRaw).content !== expected) return { error: NOT_IN }
-  fs.writeFileSync(full, nextRaw)
-  return { file: rel, changed: true }
 }
 
 function correctScalar(
@@ -333,15 +311,8 @@ function encodeScalar(value: string): string {
   return value
 }
 
-function pageRegions(raw: string): { yamlStart: number; yaml: string } | null {
-  if (!raw.startsWith('---\n')) return null
-  const close = raw.indexOf('\n---', 4)
-  if (close < 0) return null
-  return { yamlStart: 4, yaml: raw.slice(4, close) }
-}
-
 function fieldPath(field: string): (string | number)[] | null {
-  if (!FIELD.test(field) || field === 'title' || field === 'body') return null
+  if (!FIELD.test(field)) return null
   return field.split('.').map((part) => (/^\d+$/.test(part) ? Number(part) : part))
 }
 

@@ -1,0 +1,5 @@
+purpose: "A plain text page with a title and a body. For contact, imprint, privacy and news items."
+slots:
+  body:
+    type: markdown
+    required: true

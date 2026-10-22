@@ -1,0 +1,19 @@
+{% extends "shell.njk" %}
+{% block body %}
+<header class="mx-auto max-w-5xl px-6 pt-12">
+  <h1 class="font-serif text-4xl text-teal">{{ title }}</h1>
+  {% if date %}<p class="mt-2 text-sm text-navy/70">{{ date }}</p>{% endif %}
+</header>
+{% if slots.body %}<div class="prose mx-auto mt-8 max-w-3xl px-6">{{ slots.body }}</div>{% endif %}
+{% if slots.images and slots.images.length %}
+<ul class="mx-auto mt-8 grid max-w-5xl gap-4 px-6 md:grid-cols-2">
+  {% for image in slots.images %}
+  <li>
+    <img class="w-full object-cover" src="{{ image.src }}" alt="{{ image.caption or '' }}">
+    {% if image.caption %}<p class="mt-1 text-sm text-navy/70">{{ image.caption }}</p>{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% if slots.email %}<p class="mx-auto mt-8 max-w-5xl px-6"><a class="bg-teal px-4 py-2 text-white" href="mailto:{{ slots.email }}">{{ slots.email }}</a></p>{% endif %}
+{% endblock %}

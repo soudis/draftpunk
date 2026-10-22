@@ -1,0 +1,3 @@
+kind: generated
+purpose: "The page of one event. The generator fills it with the event, its place and dates."
+slots: {}

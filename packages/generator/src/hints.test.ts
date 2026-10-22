@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { generate, initSite, readYaml } from './index'
+import { generate, initSite, readPage, readYaml, writePage } from './index'
 import { applyContentCorrection, markContent, revealContentHints } from './hints'
 import type { EventDoc, PlaceDoc } from './content'
 
@@ -11,13 +11,25 @@ const TWICE = 'That phrase appears twice in this text.'
 const NOT_IN = 'That text is not in the content.'
 const HINT = 'That hint is not a content field.'
 
+function pageYaml(layout: string, title: Record<string, string>, body: Record<string, string>, extra = ''): string {
+  const indent = (text: string) =>
+    text
+      .replace(/\n$/, '')
+      .split('\n')
+      .map((line) => (line ? `      ${line}` : ''))
+      .join('\n')
+  const titles = Object.entries(title).map(([lang, text]) => `  ${lang}: ${text}`).join('\n')
+  const bodies = Object.entries(body).map(([lang, text]) => `    ${lang}: |\n${indent(text)}`).join('\n')
+  return `layout: ${layout}\ntitle:\n${titles}\nslots:\n  body:\n${bodies}\n${extra}`
+}
+
 test('hints become data-content and stay out of attributes', () => {
-  const title = `<h1>${markContent('Hof', { file: 'content/pages/home/de.md', field: 'title' })}</h1>`
+  const title = `<h1>${markContent('Hof', { file: 'content/pages/home.yml', field: 'title.de' })}</h1>`
   const revealed = revealContentHints(title)
-  assert.match(revealed, /<span data-content="content\/pages\/home\/de\.md\|title">Hof<\/span>/)
-  const body = revealContentHints(markContent('<p>Hof</p>', { file: 'content/pages/home/de.md', field: 'body', block: 0 }))
-  assert.match(body, /<p data-content="content\/pages\/home\/de\.md\|body\|0">Hof<\/p>/)
-  const image = `<img src="${markContent('/media/hof.jpg', { file: 'content/pages/home/de.md', field: 'hero.image' })}" alt="">`
+  assert.match(revealed, /<span data-content="content\/pages\/home\.yml\|title\.de">Hof<\/span>/)
+  const body = revealContentHints(markContent('<p>Hof</p>', { file: 'content/pages/home.yml', field: 'slots.body.de', block: 0 }))
+  assert.match(body, /<p data-content="content\/pages\/home\.yml\|slots\.body\.de\|0">Hof<\/p>/)
+  const image = `<img src="${markContent('/media/hof.jpg', { file: 'content/pages/home.yml', field: 'slots.hero_image' })}" alt="">`
   const stripped = revealContentHints(image)
   assert.equal(stripped.includes('data-content'), false)
   assert.match(stripped, /src="\/media\/hof\.jpg"/)
@@ -26,26 +38,12 @@ test('hints become data-content and stay out of attributes', () => {
 
 test('a correction writes the hinted field and leaves the same words elsewhere', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hint-correct-'))
-  const page = path.join(root, 'content', 'pages', 'home', 'de.md')
-  const english = path.join(root, 'content', 'pages', 'home', 'en.md')
+  const page = path.join(root, 'content', 'pages', 'home.yml')
   fs.mkdirSync(path.dirname(page), { recursive: true })
   fs.writeFileSync(
     page,
-    `---
-layout: home
-title: Hof
-hero:
-  lede: A house.
----
-
-Hof bleibt.
-
-Gleicher Satz.
-
-Gleicher Satz.
-`,
+    pageYaml('home', { de: 'Hof', en: 'Hof' }, { de: 'Hof bleibt.\n\nGleicher Satz.\n\nGleicher Satz.\n', en: 'Hof bleibt.\n' }, '  lede:\n    de: A house.\n'),
   )
-  fs.writeFileSync(english, '---\nlayout: home\ntitle: Hof\n---\n\nHof bleibt.\n')
   const event = path.join(root, 'content', 'events', 'herbstfest.yml')
   fs.mkdirSync(path.dirname(event), { recursive: true })
   fs.writeFileSync(
@@ -84,32 +82,33 @@ onPremises: true
   fs.mkdirSync(path.join(root, 'design'), { recursive: true })
   fs.writeFileSync(path.join(root, 'design', 'nav.yml'), 'label: Hof\n')
 
-  const title = applyContentCorrection(root, 'content/pages/home/de.md|title', 'Hof', 'Garten')
-  assert.deepEqual(title, { file: 'content/pages/home/de.md', changed: true })
+  const title = applyContentCorrection(root, 'content/pages/home.yml|title.de', 'Hof', 'Garten')
+  assert.deepEqual(title, { file: 'content/pages/home.yml', changed: true })
   const afterTitle = fs.readFileSync(page, 'utf8')
-  assert.match(afterTitle, /title: Garten/)
+  assert.match(afterTitle, /de: Garten/)
+  assert.match(afterTitle, /en: Hof\n/)
   assert.match(afterTitle, /Hof bleibt\./)
-  assert.match(afterTitle, /lede: A house\./)
-  assert.match(fs.readFileSync(english, 'utf8'), /title: Hof/)
+  assert.match(afterTitle, /de: A house\./)
+  assert.equal(readPage(root, 'home')?.title.en, 'Hof')
 
-  const first = applyContentCorrection(root, 'content/pages/home/de.md|body|0', 'Hof', 'Haus')
+  const first = applyContentCorrection(root, 'content/pages/home.yml|slots.body.de|0', 'Hof', 'Haus')
   assert.equal('changed' in first && first.changed, true)
   const afterBody = fs.readFileSync(page, 'utf8')
-  assert.match(afterBody, /title: Garten/)
+  assert.match(afterBody, /de: Garten/)
   assert.match(afterBody, /Haus bleibt\./)
-  assert.equal(afterBody.includes('Hof bleibt.'), false)
+  assert.match(afterBody, /en: \|\n {6}Hof bleibt\./)
+  assert.equal(afterBody.includes('de: |\n      Hof bleibt.'), false)
 
-  const paragraph = applyContentCorrection(root, 'content/pages/home/de.md|body|1', 'Gleicher Satz', 'Erster Satz')
+  const paragraph = applyContentCorrection(root, 'content/pages/home.yml|slots.body.de|1', 'Gleicher Satz', 'Erster Satz')
   assert.equal('changed' in paragraph && paragraph.changed, true)
   const afterParagraph = fs.readFileSync(page, 'utf8')
   assert.match(afterParagraph, /Erster Satz\./)
   assert.match(afterParagraph, /Gleicher Satz\./)
 
-  const twice = applyContentCorrection(root, 'content/pages/note/de.md|body|0', 'Hof', 'Haus')
-  fs.mkdirSync(path.join(root, 'content', 'pages', 'note'), { recursive: true })
-  const note = path.join(root, 'content', 'pages', 'note', 'de.md')
-  fs.writeFileSync(note, '---\nlayout: article\ntitle: Notiz\n---\n\nHof und Hof.\n')
-  const refused = applyContentCorrection(root, 'content/pages/note/de.md|body|0', 'Hof', 'Haus')
+  const twice = applyContentCorrection(root, 'content/pages/note.yml|slots.body.de|0', 'Hof', 'Haus')
+  const note = path.join(root, 'content', 'pages', 'note.yml')
+  fs.writeFileSync(note, pageYaml('article', { de: 'Notiz' }, { de: 'Hof und Hof.\n' }))
+  const refused = applyContentCorrection(root, 'content/pages/note.yml|slots.body.de|0', 'Hof', 'Haus')
   assert.deepEqual(refused, { error: TWICE })
   assert.match(fs.readFileSync(note, 'utf8'), /Hof und Hof\./)
   assert.deepEqual(twice, { error: HINT })
@@ -140,18 +139,16 @@ onPremises: true
   const homepage = applyContentCorrection(root, 'content/events/herbstfest.yml|title.de', 'Sommerfest', 'Lichterfest')
   assert.equal('changed' in homepage && homepage.changed, true)
   assert.equal(readYaml<EventDoc>(event, { slug: '', title: {}, body: {}, place: '', categories: [], dates: [] }).title.de, 'Lichterfest')
-  assert.match(fs.readFileSync(page, 'utf8'), /title: Garten/)
+  assert.match(fs.readFileSync(page, 'utf8'), /de: Garten/)
 
-  const escaped = path.join(root, 'content', 'pages', 'kredit', 'de.md')
-  fs.mkdirSync(path.dirname(escaped), { recursive: true })
+  const escaped = path.join(root, 'content', 'pages', 'kredit.yml')
   fs.writeFileSync(
     escaped,
-    `---
-layout: article
-title: Direktkredite
----
-
-**Lieber 1000 Freund\\*innen im Rücken**
+    pageYaml(
+      'article',
+      { de: 'Direktkredite' },
+      {
+        de: `**Lieber 1000 Freund\\*innen im Rücken**
 
 Du kannst uns per Email an [direktkredit@schlor.org](mailto:direktkredit@schlor.org) schreiben.
 
@@ -160,29 +157,31 @@ Du kannst uns per Email an [direktkredit@schlor.org](mailto:direktkredit@schlor.
 
 **Wie werde ich als Anleger\\_in informiert?**
 `,
+      },
+    ),
   )
-  const star = applyContentCorrection(root, 'content/pages/kredit/de.md|body|0', 'Freund*innen', 'Freundinnen')
+  const star = applyContentCorrection(root, 'content/pages/kredit.yml|slots.body.de|0', 'Freund*innen', 'Freundinnen')
   assert.equal('changed' in star && star.changed, true)
   const afterStar = fs.readFileSync(escaped, 'utf8')
   assert.match(afterStar, /\*\*Lieber 1000 Freundinnen im Rücken\*\*/)
   assert.equal(afterStar.includes('Freund\\*innen'), false)
 
-  const mail = applyContentCorrection(root, 'content/pages/kredit/de.md|body|1', 'direktkredit@schlor.org', 'kredit@schlor.org')
+  const mail = applyContentCorrection(root, 'content/pages/kredit.yml|slots.body.de|1', 'direktkredit@schlor.org', 'kredit@schlor.org')
   assert.equal('changed' in mail && mail.changed, true)
   const afterMail = fs.readFileSync(escaped, 'utf8')
   assert.match(afterMail, /\[kredit@schlor\.org\]\(mailto:direktkredit@schlor\.org\)/)
 
-  const firstItem = applyContentCorrection(root, 'content/pages/kredit/de.md|body|2|0', 'Zinssatz', 'Zins')
+  const firstItem = applyContentCorrection(root, 'content/pages/kredit.yml|slots.body.de|2|0', 'Zinssatz', 'Zins')
   assert.equal('changed' in firstItem && firstItem.changed, true)
   const afterItem = fs.readFileSync(escaped, 'utf8')
   assert.match(afterItem, /Zins frei wählen/)
   assert.match(afterItem, /Du kannst jederzeit vorbeischaun/)
-  const repeated = applyContentCorrection(root, 'content/pages/kredit/de.md|body|2|1', 'Du kannst', 'Man kann')
+  const repeated = applyContentCorrection(root, 'content/pages/kredit.yml|slots.body.de|2|1', 'Du kannst', 'Man kann')
   assert.equal('changed' in repeated && repeated.changed, true)
   assert.match(fs.readFileSync(escaped, 'utf8'), /Du kannst den Zins frei wählen/)
   assert.match(fs.readFileSync(escaped, 'utf8'), /Man kann jederzeit vorbeischaun/)
 
-  const investor = applyContentCorrection(root, 'content/pages/kredit/de.md|body|3', 'Anleger_in', 'Anlegerin')
+  const investor = applyContentCorrection(root, 'content/pages/kredit.yml|slots.body.de|3', 'Anleger_in', 'Anlegerin')
   assert.equal('changed' in investor && investor.changed, true)
   assert.match(fs.readFileSync(escaped, 'utf8'), /Anlegerin/)
   assert.equal(fs.readFileSync(escaped, 'utf8').includes('Anleger\\_in'), false)
@@ -191,20 +190,15 @@ Du kannst uns per Email an [direktkredit@schlor.org](mailto:direktkredit@schlor.
   const beforeDesign = fs.readFileSync(design, 'utf8')
   assert.deepEqual(applyContentCorrection(root, 'design/nav.yml|label', 'Hof', 'Garten'), { error: HINT })
   assert.equal(fs.readFileSync(design, 'utf8'), beforeDesign)
-  assert.deepEqual(applyContentCorrection(root, 'content/pages/home/de.md|body|0', 'fehlt', 'neu'), { error: NOT_IN })
+  assert.deepEqual(applyContentCorrection(root, 'content/pages/home.yml|slots.body.de|0', 'fehlt', 'neu'), { error: NOT_IN })
 })
 
 test('preview html names the field and published html does not', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hint-preview-'))
   initSite(root)
-  fs.mkdirSync(path.join(root, 'content', 'pages', 'note'), { recursive: true })
   fs.writeFileSync(
-    path.join(root, 'content', 'pages', 'note', 'de.md'),
-    '---\nlayout: article\ntitle: Hof\n---\n\nGleicher Satz.\n\nGleicher Satz.\n',
-  )
-  fs.writeFileSync(
-    path.join(root, 'content', 'pages', 'note', 'en.md'),
-    '---\nlayout: article\ntitle: Court\n---\n\nSame sentence.\n',
+    path.join(root, 'content', 'pages', 'note.yml'),
+    pageYaml('article', { de: 'Hof', en: 'Court' }, { de: 'Gleicher Satz.\n\nGleicher Satz.\n', en: 'Same sentence.\n' }),
   )
   fs.mkdirSync(path.join(root, 'content', 'events'), { recursive: true })
   fs.writeFileSync(
@@ -233,23 +227,24 @@ address: Rappachgasse 1
 onPremises: true
 `,
   )
-  const home = path.join(root, 'content', 'pages', 'home', 'de.md')
-  fs.appendFileSync(home, '\nHerbstfest im Hof.\n')
+  const home = readPage(root, 'home')!
+  const homeBody = (home.slots.body as Record<string, string>).de
+  writePage(root, { ...home, slots: { ...home.slots, body: { ...(home.slots.body as object), de: `${homeBody}\n\nHerbstfest im Hof.\n` } } })
 
   const preview = generate(root)
   const note = fs.readFileSync(path.join(preview.outDir, 'note', 'index.html'), 'utf8')
-  assert.match(note, /data-content="content\/pages\/note\/de\.md\|title"/)
+  assert.match(note, /data-content="content\/pages\/note\.yml\|title\.de"/)
   assert.match(note, /<title>Hof · /)
   assert.equal(/<title>[^<]*data-content/.test(note), false)
-  assert.match(note, /data-content="content\/pages\/note\/de\.md\|body\|0"/)
-  assert.match(note, /data-content="content\/pages\/note\/de\.md\|body\|1"/)
+  assert.match(note, /data-content="content\/pages\/note\.yml\|slots\.body\.de\|0"/)
+  assert.match(note, /data-content="content\/pages\/note\.yml\|slots\.body\.de\|1"/)
   assert.match(note, /Hof/)
   assert.equal(note.includes('\uE000'), false)
 
   const index = fs.readFileSync(path.join(preview.outDir, 'index.html'), 'utf8')
   assert.match(index, /data-content="content\/events\/herbstfest\.yml\|title\.de"/)
   assert.match(index, /Herbstfest/)
-  assert.match(index, /data-content="content\/pages\/home\/de\.md\|body\|/)
+  assert.match(index, /data-content="content\/pages\/home\.yml\|slots\.body\.de\|/)
   assert.equal(index.includes('\uE000'), false)
 
   const eventPage = fs.readFileSync(path.join(preview.outDir, 'events', 'herbstfest', 'index.html'), 'utf8')
