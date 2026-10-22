@@ -1,6 +1,10 @@
 const SITE_WRITES = new Set([
   'write_design',
   'write_layout',
+  'edit_layout',
+  'edit_design',
+  'set_slot',
+  'edit_slot',
   'fork_layout',
   'delete_layout',
   'replace_layout',

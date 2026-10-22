@@ -5,6 +5,8 @@ import { z } from 'zod'
 import { searchContent } from './content-search'
 import { guardDesignWrite } from './layout-guard'
 import type { EditorMode } from './mode'
+import { replaceOnce } from './edit'
+import { slotDefAt, slotPath, valueAt, withValueAt } from './slot-edit'
 import { documentOpacityRefusal } from './page-opacity'
 import { suggestPicture } from './picture-vision'
 import { detectPicture, discardPicture, fitPicture, readPicture, searchPictures, stemFromFilename, storePicture } from './pictures'
@@ -28,6 +30,7 @@ import {
   pageFilePath,
   pageLayoutsOrThrow,
   pagesByLayout,
+  parseLayoutFile,
   readEventFields,
   readLayout,
   readLayoutFiles,
@@ -200,7 +203,7 @@ export function contentTools(root: string): ToolSet {
     }),
     write_page: defineTool('write_page', {
       description:
-        'Write a page. Send slug, layout, title, and slots. title is an object keyed by language id, such as {"de":"TRAP","en":"TRAP"}. slots hold the values the layout declares: read_layout names them and their types. Translated text is an object keyed by language id; pictures, links and dates are stored once. Example: {"slug":"trap","layout":"article","title":{"de":"TRAP","en":"TRAP"},"slots":{"body":{"de":"Die Halle ist offen.","en":"The hall is open."}}}. Send every language that is not optional. Slots you send replace those slots; slots you leave out stay; send null to remove one. To change a page that exists, read_page first and send only what changes. Layout must already exist. If you change the layout of a page, send slots that fit the new layout and null for the ones it does not have. date marks a news item: omit it to keep the current date, send "" to remove it. A picture in markdown is ![caption](/media/name.jpg). Nothing is written when anything is wrong.',
+        'Write a page. Send slug, layout, title, and slots. title is an object keyed by language id, such as {"de":"TRAP","en":"TRAP"}. slots hold the values the layout declares: read_layout names them and their types. Translated text is an object keyed by language id; pictures, links and dates are stored once. Example: {"slug":"trap","layout":"article","title":{"de":"TRAP","en":"TRAP"},"slots":{"body":{"de":"Die Halle ist offen.","en":"The hall is open."}}}. Send every language that is not optional. Slots you send replace those slots; slots you leave out stay; send null to remove one. To change a few words or one value of a page that exists, use edit_slot or set_slot instead. To rewrite slots, read_page first and send only what changes. Layout must already exist. If you change the layout of a page, send slots that fit the new layout and null for the ones it does not have. date marks a news item: omit it to keep the current date, send "" to remove it. A picture in markdown is ![caption](/media/name.jpg). Nothing is written when anything is wrong.',
       input: z.object({
         slug: z.string().describe('Required. Page slug, such as trap.'),
         layout: z.string().describe('Required. Name of a layout that already exists, such as article.'),
@@ -225,6 +228,66 @@ export function contentTools(root: string): ToolSet {
         writePage(root, merged)
         const languages = Object.keys(merged.title).join(', ')
         return finish(root, `Wrote page ${slug} (${languages}) with layout ${layout}.`)
+      },
+    }),
+    set_slot: defineTool('set_slot', {
+      description:
+        'Set one slot, or one place inside a slot, on a page, without sending the whole page. slot is a name such as body, or a path into a list or group such as cards.2.title (a list index counts from 0; the index after the last item adds one). For translated text send lang and a string to change one language, or leave lang out and send an object keyed by language. value null removes it. Use it to replace a value; use edit_slot to change a few words inside text.',
+      input: z.object({
+        slug: z.string().describe('Required. Page slug.'),
+        slot: z.string().describe('Required. Slot name or path, such as body or facts.1.value.'),
+        value: z.any().describe('Required. The new value. null removes it.'),
+        lang: z.string().optional().describe('Optional. Language id, to set one language of translated text.'),
+      }),
+      execute: ({ slug, slot, value, lang }) => {
+        const page = readPage(root, slug)
+        if (!page) fail(`Missing page ${slug}`)
+        const def = slotDefAt(readLayout(path.join(root, 'design'), page.layout).slots, slotPath(slot))
+        const parts = slotPath(slot)
+        let next = value
+        if (lang !== undefined) {
+          if (!((def.type === 'text' || def.type === 'markdown') && def.translate)) fail(`${slot} is not translated text, so lang does not apply.`)
+          if (value !== null && typeof value !== 'string') fail(`With lang, value is the text of that language.`)
+          const current = (valueAt(page.slots, parts) ?? {}) as Record<string, string>
+          const { [lang]: _removed, ...others } = current
+          next = value === null ? others : { ...others, [lang]: value }
+          if (value === null && Object.keys(others).length === 0) next = null
+        }
+        const slots = withValueAt(page.slots, parts, next)
+        const problems = checkPage(root, { ...page, slots })
+        if (problems.length > 0) fail(`set_slot ${slug}: ${problems.join('; ')}. Nothing was written.`)
+        writePage(root, { ...page, slots })
+        return finish(root, `Set slots.${slot}${lang ? ` (${lang})` : ''} of page ${slug}.`)
+      },
+    }),
+    edit_slot: defineTool('edit_slot', {
+      description:
+        'Change a few words inside one text or markdown slot of a page: replace text that appears once in it. find must match exactly once, so include a few words around it; set all to replace every match. For translated text send lang. Use it to fix a word, a number, or a sentence instead of sending the whole page.',
+      input: z.object({
+        slug: z.string().describe('Required. Page slug.'),
+        slot: z.string().describe('Required. Slot name or path, such as body or cards.2.text.'),
+        find: z.string().describe('Required. The exact text to replace. Copy it from read_page.'),
+        replace: z.string().describe('Required. The new text. May be empty.'),
+        lang: z.string().optional().describe('Required for translated text: the language id.'),
+        all: z.boolean().optional().describe('Optional. Replace every match instead of requiring one.'),
+      }),
+      execute: ({ slug, slot, find, replace, lang, all }) => {
+        const page = readPage(root, slug)
+        if (!page) fail(`Missing page ${slug}`)
+        const parts = slotPath(slot)
+        const def = slotDefAt(readLayout(path.join(root, 'design'), page.layout).slots, parts)
+        if (def.type !== 'text' && def.type !== 'markdown') fail(`${slot} is ${def.type}. edit_slot changes text. Use set_slot.`)
+        const language = def.translate ? (lang ?? (readSiteConfig(root).languages.length === 1 ? defaultLanguage(root) : undefined)) : undefined
+        if (def.translate && !language) fail(`${slot} is translated. Send lang: ${languageChoice(root)}.`)
+        const at = def.translate ? [...parts, language as string] : parts
+        const current = valueAt(page.slots, at)
+        if (typeof current !== 'string') fail(`Page ${slug} has no text in ${slot}${language ? ` (${language})` : ''}. Use set_slot to write it.`)
+        const { text, count } = replaceOnce(current, find, replace, `${slug} ${slot}${language ? ` (${language})` : ''}`, all)
+        const slots = withValueAt(page.slots, at, text)
+        const problems = checkPage(root, { ...page, slots })
+        if (problems.length > 0) fail(`edit_slot ${slug}: ${problems.join('; ')}. Nothing was written.`)
+        writePage(root, { ...page, slots })
+        return finish(root, `Replaced ${count === 1 ? 'one match' : `${count} matches`} in slots.${slot}${language ? ` (${language})` : ''} of page ${slug}.`)
       },
     }),
     delete_page: defineTool('delete_page', {
@@ -504,6 +567,63 @@ function layoutReport(root: string, name: string, warnings: string[]): string[] 
   return notes
 }
 
+type LayoutWrite = { name: string; purpose: string; slots: unknown; template: string; style?: string }
+
+// Check a layout against the guard, write it, and say what else the change affects. A failed build puts the old layout back.
+function saveLayout(root: string, input: LayoutWrite): string {
+  const designDir = path.join(root, 'design')
+  for (const [rel, content] of [
+    [`layouts/${input.name}/template.njk`, input.template],
+    ...(input.style === undefined ? [] : [[`layouts/${input.name}/style.css`, input.style]]),
+  ] as [string, string][]) {
+    const refused = guardDesignWrite(root, rel, content)
+    if (refused) fail(refused)
+    if (rel.endsWith('.css')) {
+      const blank = documentOpacityRefusal(content)
+      if (blank) fail(blank)
+    }
+  }
+  const before = layoutExists(designDir, input.name) ? readLayoutFiles(designDir, input.name) : null
+  const { warnings } = writeLayout(designDir, input)
+  try {
+    const notes = layoutReport(root, input.name, warnings)
+    const summary = `${before ? 'Updated' : 'Wrote'} layout ${input.name}.${notes.length > 0 ? `\n${notes.join('\n')}` : ''}`
+    return finish(root, `${summary}\n${briefLine('styles.css')}`.trimEnd(), { design: true })
+  } catch (error) {
+    restoreLayout(designDir, input.name, before)
+    throw error
+  }
+}
+
+// Check a design file against the guard and write it. A failed build puts the old file back.
+function saveDesignFile(root: string, rel: string, content: string): string {
+  const target = rel.trim().replaceAll('\\', '/')
+  if (!target) fail('path is required, such as styles.css. Nothing was written.')
+  const layoutFile = /^layouts\/([a-z0-9-]+)\/(layout\.yml|template\.njk|style\.css)$/.exec(target)
+  if (layoutFile?.[2] === 'layout.yml') fail('Write a layout’s slots and purpose with write_layout or edit_layout. Nothing was written.')
+  if (layoutFile && !layoutExists(path.join(root, 'design'), layoutFile[1])) fail(`Unknown layout ${layoutFile[1]}. Use write_layout to create it.`)
+  const refused = guardDesignWrite(root, target, content)
+  if (refused) fail(refused)
+  if (target.endsWith('.css')) {
+    const blank = documentOpacityRefusal(content)
+    if (blank) fail(blank)
+  }
+  if (layoutFile?.[2] === 'template.njk') {
+    const checked = checkLayout(readLayout(path.join(root, 'design'), layoutFile[1]), content)
+    if (checked.errors.length > 0) fail(`${checked.errors.join('. ')}. Nothing was written.`)
+  }
+  const file = designFilePath(root, target)
+  const original = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
+  fs.writeFileSync(file, content)
+  try {
+    return finish(root, `Updated design/${target}. Every page was regenerated. ${briefLine(target)}`.trim(), { design: true })
+  } catch (error) {
+    if (original) fs.writeFileSync(file, original)
+    else fs.rmSync(file, { force: true })
+    throw error
+  }
+}
+
 export function designTools(root: string): ToolSet {
   return {
     list_design: defineTool('list_design', {
@@ -534,7 +654,7 @@ export function designTools(root: string): ToolSet {
     }),
     write_layout: defineTool('write_layout', {
       description:
-        'Write a layout, all of it at once: name, purpose, slots, template, and style. A layout may be for one page. Use list_layouts first. A layout is a page shape, so it never holds one page’s words: text comes from slots, and short interface text from labels in design/labels.yml. slots is an object of slot names to a type: text, markdown, image, link, date, list, or group. Text and markdown hold one entry per language; the others are stored once. Write a slot as "text", or as {"type":"text","required":true,"translate":false}. A list has "of", the type of one item, and a group has "fields". Example slots: {"lede":"text","body":{"type":"markdown","required":true},"photo":"image","facts":{"type":"list","of":{"label":"text","value":{"type":"text","translate":false}}}}. title, date and layout are page fields, not slots. The template extends shell.njk and shows slots with {{ slots.name }} (markdown is already HTML); title, date, labels, news, upcoming, and lang are also available. style is CSS for this layout only and may use Tailwind classes: it applies to pages with this layout and nothing else. Every slot must be shown in the template, and the template may only read declared slots. Nothing is written when anything is wrong.',
+        'Write a layout, all of it at once: name, purpose, slots, template, and style. For a small change to a layout that exists, use edit_layout. A layout may be for one page. Use list_layouts first. A layout is a page shape, so it never holds one page’s words: text comes from slots, and short interface text from labels in design/labels.yml. slots is an object of slot names to a type: text, markdown, image, link, date, list, or group. Text and markdown hold one entry per language; the others are stored once. Write a slot as "text", or as {"type":"text","required":true,"translate":false}. A list has "of", the type of one item, and a group has "fields". Example slots: {"lede":"text","body":{"type":"markdown","required":true},"photo":"image","facts":{"type":"list","of":{"label":"text","value":{"type":"text","translate":false}}}}. title, date and layout are page fields, not slots. The template extends shell.njk and shows slots with {{ slots.name }} (markdown is already HTML); title, date, labels, news, upcoming, and lang are also available. style is CSS for this layout only and may use Tailwind classes: it applies to pages with this layout and nothing else. Every slot must be shown in the template, and the template may only read declared slots. Nothing is written when anything is wrong.',
       input: z.object({
         name: z.string().describe('Required. Lowercase words with dashes, such as room-wide.'),
         purpose: z.string().describe('Required. One line: what pages this layout is for.'),
@@ -542,30 +662,7 @@ export function designTools(root: string): ToolSet {
         template: z.string().describe('Required. The full template.njk.'),
         style: z.string().optional().describe('Optional. The full style.css for this layout. Omit to keep the current one.'),
       }),
-      execute: ({ name, purpose, slots, template, style }) => {
-        const designDir = path.join(root, 'design')
-        for (const [rel, content] of [
-          [`layouts/${name}/template.njk`, template],
-          ...(style === undefined ? [] : [[`layouts/${name}/style.css`, style]]),
-        ] as [string, string][]) {
-          const refused = guardDesignWrite(root, rel, content)
-          if (refused) fail(refused)
-          if (rel.endsWith('.css')) {
-            const blank = documentOpacityRefusal(content)
-            if (blank) fail(blank)
-          }
-        }
-        const before = layoutExists(designDir, name) ? readLayoutFiles(designDir, name) : null
-        const { warnings } = writeLayout(designDir, { name, purpose, slots, template, style })
-        try {
-          const notes = layoutReport(root, name, warnings)
-          const summary = `${before ? 'Updated' : 'Wrote'} layout ${name}.${notes.length > 0 ? `\n${notes.join('\n')}` : ''}`
-          return finish(root, `${summary}\n${briefLine('styles.css')}`.trimEnd(), { design: true })
-        } catch (error) {
-          restoreLayout(designDir, name, before)
-          throw error
-        }
-      },
+      execute: (input) => saveLayout(root, input),
     }),
     fork_layout: defineTool('fork_layout', {
       description: 'Copy a layout under a new name, with its slots, template, and style. Then change the copy with write_layout. Use it when a page needs something close to an existing layout.',
@@ -617,37 +714,55 @@ export function designTools(root: string): ToolSet {
     }),
     write_design: defineTool('write_design', {
       description:
-        'Overwrite a design file with the full new content: brief.md, styles.css, shell.njk, nav.yml, labels.yml, categories.yml, fields.yml, or site.yml. Write a layout with write_layout. This restyles every page. The shell and styles must not name one page, hold a picture address, or hold words: interface text goes in labels.yml. A stylesheet that sets opacity 0 on html or body is refused.',
+        'Overwrite a design file with the full new content: brief.md, styles.css, shell.njk, nav.yml, labels.yml, categories.yml, fields.yml, or site.yml. Write a layout with write_layout. For a small change, use edit_design. This restyles every page. The shell and styles must not name one page, hold a picture address, or hold words: interface text goes in labels.yml. A stylesheet that sets opacity 0 on html or body is refused.',
       input: z.object({
         path: z.string().describe('Required. Path relative to design/, such as styles.css.'),
         content: z.string().min(1).describe('Required. The full new content of the file.'),
       }),
-      execute: ({ path: rel, content }) => {
+      execute: ({ path: rel, content }) => saveDesignFile(root, rel, content),
+    }),
+    edit_layout: defineTool('edit_layout', {
+      description:
+        'Change part of a layout: replace one piece of text in its template, its style, or its layout.yml (purpose and slots). find must match exactly once, so include a few words around it; set all to replace every match. Use this for a small change instead of write_layout, which sends the whole layout again. The same checks as write_layout apply.',
+      input: z.object({
+        name: z.string().describe('Required. Layout name.'),
+        part: z.enum(['template', 'style', 'layout']).describe('Required. Which file: template.njk, style.css, or layout.yml.'),
+        find: z.string().describe('Required. The exact text to replace. Copy it from read_layout.'),
+        replace: z.string().describe('Required. The new text. May be empty to delete the found text.'),
+        all: z.boolean().optional().describe('Optional. Replace every match instead of requiring one.'),
+      }),
+      execute: ({ name, part, find, replace, all }) => {
+        const designDir = path.join(root, 'design')
+        if (!layoutExists(designDir, name)) fail(`Unknown layout ${name}. Use list_layouts.`)
+        const files = readLayoutFiles(designDir, name)
+        const file = part === 'layout' ? 'layout.yml' : part === 'template' ? 'template.njk' : 'style.css'
+        const source = part === 'layout' ? files.layout : part === 'template' ? files.template : files.style
+        const { text, count } = replaceOnce(source, find, replace, `layouts/${name}/${file}`, all)
+        const current = parseLayoutFile(files.layout)
+        const next = part === 'layout' ? parseLayoutFile(text) : current
+        const saved = saveLayout(root, {
+          name,
+          purpose: next.purpose,
+          slots: next.slots,
+          template: part === 'template' ? text : files.template,
+          style: part === 'style' ? text : files.style,
+        })
+        return `Replaced ${count === 1 ? 'one match' : `${count} matches`} in layouts/${name}/${file}. ${saved}`
+      },
+    }),
+    edit_design: defineTool('edit_design', {
+      description:
+        'Change part of a design file: replace one piece of text in styles.css, shell.njk, nav.yml, labels.yml, brief.md, or a layout’s template.njk or style.css. find must match exactly once, so include a few words around it; set all to replace every match. Use this for a small change instead of write_design, which sends the whole file again. The same checks as write_design apply.',
+      input: z.object({
+        path: z.string().describe('Required. Path relative to design/, such as styles.css.'),
+        find: z.string().describe('Required. The exact text to replace. Copy it from read_design.'),
+        replace: z.string().describe('Required. The new text. May be empty to delete the found text.'),
+        all: z.boolean().optional().describe('Optional. Replace every match instead of requiring one.'),
+      }),
+      execute: ({ path: rel, find, replace, all }) => {
         const target = rel.trim().replaceAll('\\', '/')
-        if (!target) fail('write_design: path is required, such as styles.css. Nothing was written.')
-        const layoutFile = /^layouts\/([a-z0-9-]+)\/(layout\.yml|template\.njk|style\.css)$/.exec(target)
-        if (layoutFile?.[2] === 'layout.yml') fail('Write a layout’s slots and purpose with write_layout. Nothing was written.')
-        if (layoutFile && !layoutExists(path.join(root, 'design'), layoutFile[1])) fail(`Unknown layout ${layoutFile[1]}. Use write_layout to create it.`)
-        const refused = guardDesignWrite(root, target, content)
-        if (refused) fail(refused)
-        if (target.endsWith('.css')) {
-          const blank = documentOpacityRefusal(content)
-          if (blank) fail(blank)
-        }
-        if (layoutFile?.[2] === 'template.njk') {
-          const checked = checkLayout(readLayout(path.join(root, 'design'), layoutFile[1]), content)
-          if (checked.errors.length > 0) fail(`${checked.errors.join('. ')}. Nothing was written.`)
-        }
-        const file = designFilePath(root, target)
-        const original = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
-        fs.writeFileSync(file, content)
-        try {
-          return finish(root, `Updated design/${target}. Every page was regenerated. ${briefLine(target)}`.trim(), { design: true })
-        } catch (error) {
-          if (original) fs.writeFileSync(file, original)
-          else fs.rmSync(file, { force: true })
-          throw error
-        }
+        const { text, count } = replaceOnce(readDesignFile(root, target), find, replace, `design/${target}`, all)
+        return `Replaced ${count === 1 ? 'one match' : `${count} matches`} in design/${target}. ${saveDesignFile(root, target, text)}`
       },
     }),
     read_website: defineTool('read_website', {

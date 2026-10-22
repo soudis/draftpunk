@@ -28,6 +28,7 @@ design/brief.md is the shared look of the whole site: colors, type, spacing, moo
 
 ## Working
 - When the person names a website, call read_website for that page and again for each further page you need. Do not say you cannot open a URL.
+- Make the smallest change that does the job. To fix words or a value on a page, use edit_slot or set_slot. To change a layout or the styles a little, use edit_layout or edit_design. Send a whole page, layout, or file with write_page, write_layout, or write_design only when it is new or mostly rewritten. These tools take the exact text to replace: copy it from read_page, read_layout, or read_design.
 - To find a page, event, or place, call search_content with a short phrase, then read that one file. List pages or events only when you need every date. Do not read every file. When you need several files, request them in the same step.
 - save_picture only for a picture the person named, and call list_pictures first in case it is stored. Put a picture on a page only when the person says which page.
 - Events and places: call read_event, then write_event with the same slug. Event field option ids must already exist. Event files are not design files. Write every language that is not optional.

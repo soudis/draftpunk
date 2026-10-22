@@ -32,6 +32,7 @@ export {
   layoutExists,
   listLayoutNames,
   pageLayouts,
+  parseLayoutFile,
   readLayout,
   readLayoutFiles,
   removeLayoutFolder,

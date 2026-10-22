@@ -71,6 +71,18 @@ export function readLayout(designDir: string, name: string): LayoutDef {
   }
 }
 
+/** The purpose and the slots as written in a layout.yml text. */
+export function parseLayoutFile(text: string): { purpose: string; slots: unknown } {
+  let raw: unknown
+  try {
+    raw = parse(text)
+  } catch (error) {
+    throw new Error(`layout.yml is not valid YAML: ${error instanceof Error ? error.message.split('\n')[0] : 'unreadable'}`)
+  }
+  const record = (raw && typeof raw === 'object' ? raw : {}) as { purpose?: unknown; slots?: unknown }
+  return { purpose: typeof record.purpose === 'string' ? record.purpose : '', slots: record.slots ?? {} }
+}
+
 export function readLayoutFiles(designDir: string, name: string): LayoutFiles {
   const folder = layoutFolder(designDir, name)
   const read = (file: string) => (fs.existsSync(path.join(folder, file)) ? fs.readFileSync(path.join(folder, file), 'utf8') : '')
