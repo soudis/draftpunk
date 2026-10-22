@@ -4,7 +4,7 @@ import path from 'node:path'
 import { writeYaml, type EventDoc, type PlaceDoc } from './content'
 import { pageLayoutsOrThrow, replaceLayout } from './generate'
 import { GENERATED_LAYOUTS, labelReferences, layoutExists, listLayoutNames, pageLayouts, removeLayoutFolder, writeLayout } from './layouts'
-import { checkPage, listPageSlugs, readPage, writePage } from './pages'
+import { checkPage, dropOtherLanguages, listPageSlugs, readPage, writePage } from './pages'
 import { parse, stringify } from 'yaml'
 import { parseTokens } from './tokens'
 import { labelNames, parseLabels, readEventFields, readSiteConfig, readYamlFile, writeYamlFile, type SiteLanguage } from './model'
@@ -125,6 +125,8 @@ function applyUnchecked(root: string, input: SetupProposal, finish: boolean): st
       languages: languages && languages.length > 0 ? languages : current.languages,
     })
     notes.push('site')
+    const trimmed = dropOtherLanguages(root)
+    if (trimmed.length > 0) notes.push(`removed the texts of languages the site does not have from ${trimmed.length} page${trimmed.length === 1 ? '' : 's'}`)
   }
   if (proposal.fields) {
     writeYamlFile(path.join(root, 'design', 'fields.yml'), proposal.fields)

@@ -4,7 +4,7 @@ import { parse, stringify } from 'yaml'
 import { assertInside, assertSlug, readYaml, type EventDoc } from './content'
 import { layoutExists, pageLayouts, readLayout } from './layouts'
 import { readSiteConfig, requiredLanguages } from './model'
-import { validateSlots } from './slots'
+import { validateSlots, withoutLanguages } from './slots'
 
 /** One page. Titles and translated slot text hold one entry per language. */
 export type PageFile = {
@@ -133,4 +133,26 @@ export function bilingualGaps(root: string): string[] {
     }
   }
   return gaps
+}
+
+/**
+ * Take the texts of languages the site does not have out of its pages, for a site whose languages were just
+ * narrowed (the starter has a German and an English text on every page, and a site in German only must not keep
+ * the English one: it would block publishing). Returns the pages that changed.
+ */
+export function dropOtherLanguages(root: string): string[] {
+  const designDir = path.join(root, 'design')
+  const languages = readSiteConfig(root).languages
+  const known = new Set(languages.map((language) => language.id))
+  const changed: string[] = []
+  for (const slug of listPageSlugs(root)) {
+    const page = readPage(root, slug)
+    if (!page) continue
+    const title = Object.fromEntries(Object.entries(page.title).filter(([id]) => known.has(id)))
+    const slots = layoutExists(designDir, page.layout) ? (withoutLanguages(readLayout(designDir, page.layout).slots, page.slots, languages) as Record<string, unknown>) : page.slots
+    if (JSON.stringify(title) === JSON.stringify(page.title) && JSON.stringify(slots) === JSON.stringify(page.slots)) continue
+    writePage(root, { ...page, title, slots })
+    changed.push(slug)
+  }
+  return changed
 }

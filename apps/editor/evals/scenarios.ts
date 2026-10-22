@@ -1,6 +1,6 @@
 import path from 'node:path'
 import fs from 'node:fs'
-import { listLayoutNames, listPageSlugs, readLayout, readPage, readProposal, setupAccepted, writePage } from '@schlor/generator'
+import { listLayoutNames, listPageSlugs, readLayout, readPage, readProposal, readYaml, setupAccepted, writePage } from '@schlor/generator'
 import { buildSetupMessage } from '../lib/setup-questions'
 import { contentUntouched, designHoldsNoContent, designUntouched, proposalAccepts, publishable, sentencesKept, type Check, type Scenario } from '../lib/eval'
 
@@ -176,11 +176,20 @@ export const scenarios: Scenario[] = [
         { name: 'the pages were imported', ok: slugs.length > 15, detail: `${slugs.length} pages` },
         { name: 'the import was recorded', ok: fs.existsSync(record) },
         sourceTextsTaken(root),
+        menuHasGroups(root),
         publishable(root),
       ]
     },
   },
 ]
+
+/** The source's menu has groups with sub-entries (schlor.org has four), so a menu that was copied has some too. */
+function menuHasGroups(root: string): Check {
+  const nav = readYaml<{ menu?: { children?: unknown[] }[] } | unknown[]>(path.join(root, 'design', 'nav.yml'), {})
+  const menu = Array.isArray(nav) ? [] : (nav.menu ?? [])
+  const groups = menu.filter((item) => (item.children?.length ?? 0) >= 2).length
+  return { name: 'the menu has the source site\'s groups', ok: groups >= 2, detail: `${groups} groups with sub-entries in ${menu.length} entries` }
+}
 
 /** The pages (and the recorded proposal) show no picture from another host, and at least one picture was saved into the site. */
 function sourceTextsTaken(root: string): Check {

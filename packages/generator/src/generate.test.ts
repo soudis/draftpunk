@@ -533,3 +533,23 @@ test('a proposal that only fails when it is applied is refused before anything i
   assert.equal(fs.readFileSync(path.join(root, 'design', 'tokens.yml'), 'utf8'), before)
   assert.deepEqual(recordProposal(root, { pages: [{ slug: 'ueber-uns', layout: 'article', title: { de: 'Über uns' }, slots: { body: { de: 'Text' } } }] }), [])
 })
+
+test('a setup that narrows the site to one language takes the other language out of the starter pages, so publishing is not blocked', () => {
+  const root = newSite('housing-german-only-')
+  assert.equal(bilingualGaps(root).length, 0)
+  const notes = applyProposal(root, { site: { name: 'Haus', languages: [{ id: 'de', label: 'Deutsch' }] } }, true)
+  assert.match(notes, /removed the texts of languages the site does not have from \d+ pages/)
+  assert.deepEqual(bilingualGaps(root), [])
+  const privacy = readPage(root, 'datenschutz')
+  assert.deepEqual(Object.keys(privacy?.title ?? {}), ['de'])
+  assert.deepEqual(Object.keys((privacy?.slots.body as Record<string, string>) ?? {}), ['de'])
+  assert.equal(privacy?.slots.body && (privacy.slots.body as Record<string, string>).de.length > 10, true)
+})
+
+test('texts are left alone when the languages are not narrowed', () => {
+  const root = newSite('housing-both-languages-')
+  const before = JSON.stringify(readPage(root, 'datenschutz'))
+  const notes = applyProposal(root, { site: { name: 'Haus', languages: [{ id: 'de' }, { id: 'en' }] } })
+  assert.equal(notes.includes('removed the texts'), false)
+  assert.equal(JSON.stringify(readPage(root, 'datenschutz')), before)
+})

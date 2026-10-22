@@ -215,6 +215,26 @@ function checkTranslated(def: SlotDef, value: unknown, where: string, languages:
   return out
 }
 
+/** The slot values without the texts of languages the site does not have. A slot the layout does not have is left alone. */
+export function withoutLanguages(schema: SlotSchema, values: unknown, languages: SiteLanguage[]): unknown {
+  const known = new Set(languages.map((language) => language.id))
+  const strip = (def: SlotDef, value: unknown): unknown => {
+    if ((def.type === 'text' || def.type === 'markdown') && def.translate) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+      return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([id]) => known.has(id)))
+    }
+    if (def.type === 'list') return Array.isArray(value) ? value.map((item) => strip(def.of as SlotDef, item)) : value
+    if (def.type === 'group') {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+      const fields = def.fields ?? {}
+      return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([name, field]) => [name, fields[name] ? strip(fields[name], field) : field]))
+    }
+    return value
+  }
+  if (!values || typeof values !== 'object' || Array.isArray(values)) return values
+  return Object.fromEntries(Object.entries(values as Record<string, unknown>).map(([name, value]) => [name, schema[name] ? strip(schema[name], value) : value]))
+}
+
 export type SlotHooks = {
   /** Plain text. `path` is where the text lives in the page file, for the inline editor. */
   text: (source: string, path: string) => unknown
