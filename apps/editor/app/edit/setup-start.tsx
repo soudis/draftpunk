@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { buildSetupMessage, canGoOn, setupQuestions, type Answers, type Question } from '@/lib/setup-questions'
+import { buildSetupMessage, canGoOn, visibleQuestions, type Answers, type Question } from '@/lib/setup-questions'
 import { uiText, type EditorLanguage } from '@/lib/ui-text'
 
 function Choice({ question, answer, onAnswer, language }: { question: Question; answer: string; onAnswer: (value: string) => void; language: EditorLanguage }) {
@@ -25,7 +25,7 @@ function Choice({ question, answer, onAnswer, language }: { question: Question; 
           </button>
         ))}
       </div>
-      {question.id !== 'calendar' && (
+      {!question.closed && (
         <label className="own-words">
           {uiText(language, 'setup.other')}
           <input
@@ -59,9 +59,9 @@ export function SetupStart({
   onSkip: () => void
   skipError: string
 }) {
-  const questions = setupQuestions(language)
   const [step, setStep] = useState(0)
   const [answers, setAnswers] = useState<Answers>({})
+  const questions = visibleQuestions(language, answers)
   const reviewing = step >= questions.length
   const question = questions[step]
   const answer = question ? (answers[question.id] ?? '') : ''

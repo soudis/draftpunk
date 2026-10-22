@@ -85,3 +85,17 @@ export function formatText(url: string, raw: RawText): string {
   if (raw.empty || !raw.markdown.trim()) throw new Error(`${url} shows no text to read. It may need a login, block automated readers, or be made of pictures.`)
   return `URL: ${url}\nTitle: ${raw.title}\n\n${raw.markdown}`
 }
+
+// The day a page says it was published, as YYYY-MM-DD, or an empty string. Runs inside the page.
+export const DATE_SOURCE = `(() => {
+  const pick = (value) => { const m = /^(\\d{4}-\\d{2}-\\d{2})/.exec(String(value || '').trim()); return m ? m[1] : '' }
+  const meta = document.querySelector('meta[property="article:published_time"], meta[itemprop="datePublished"], meta[name="date"], meta[name="dcterms.date"]')
+  if (meta && pick(meta.content)) return pick(meta.content)
+  const time = document.querySelector('time[datetime]')
+  if (time && pick(time.getAttribute('datetime'))) return pick(time.getAttribute('datetime'))
+  for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+    const m = /"datePublished"\\s*:\\s*"(\\d{4}-\\d{2}-\\d{2})/.exec(script.textContent || '')
+    if (m) return m[1]
+  }
+  return ''
+})()`

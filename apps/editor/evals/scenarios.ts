@@ -1,6 +1,8 @@
 import path from 'node:path'
-import { listLayoutNames, readLayout, readPage, writePage } from '@schlor/generator'
-import { contentUntouched, designHoldsNoContent, designUntouched, proposalAccepts, publishable, sentencesKept, type Scenario } from '../lib/eval'
+import fs from 'node:fs'
+import { listLayoutNames, listPageSlugs, readLayout, readPage, readProposal, setupAccepted, writePage } from '@schlor/generator'
+import { buildSetupMessage } from '../lib/setup-questions'
+import { contentUntouched, designHoldsNoContent, designUntouched, proposalAccepts, publishable, sentencesKept, type Check, type Scenario } from '../lib/eval'
 
 const ROOM_DE = [
   'Der Veranstaltungsraum ist ca. 68 m² groß und eignet sich für unterschiedliche Formate.',
@@ -118,7 +120,79 @@ export const scenarios: Scenario[] = [
     prepare: () => undefined,
     checks: ({ root }) => proposalAccepts(root),
   },
+  {
+    id: 'setup-with-source-site',
+    title: 'Setup takes the texts, pictures and look of a source site for its main pages',
+    network: true,
+    mode: 'setup',
+    turns: [
+      buildSetupMessage(
+        {
+          name: 'SchloR',
+          source: 'https://schlor.org',
+          take: 'Die Texte, Die Bilder, Das Aussehen',
+          scope: 'Die wichtigsten Seiten (bis zu 10)',
+          about: 'Ein selbstverwaltetes Haus- und Gewerbeprojekt in Salzburg.',
+          languages: 'Nur Deutsch',
+          sections: 'Über uns, Räume, Mitmachen, Kontakt',
+          calendar: 'Nein',
+        },
+        'de',
+      ),
+    ],
+    prepare: () => undefined,
+    checks: ({ root }) => [
+      ...proposalAccepts(root),
+      sourceTextsTaken(root),
+    ],
+  },
+  {
+    id: 'setup-import-all',
+    title: 'Setup imports every page of a source site after the proposal is accepted',
+    network: true,
+    mode: 'setup',
+    turns: [
+      buildSetupMessage(
+        {
+          name: 'SchloR',
+          source: 'https://schlor.org',
+          take: 'Die Texte, Die Bilder',
+          scope: 'Alle Seiten und Beiträge',
+          about: 'Ein selbstverwaltetes Haus- und Gewerbeprojekt in Salzburg.',
+          languages: 'Nur Deutsch',
+          sections: 'Über uns, Aktuelles, Kontakt',
+          calendar: 'Nein',
+        },
+        'de',
+      ),
+      'Ich nehme den ganzen Vorschlag an. Importiere danach den Rest der Website.',
+    ],
+    prepare: () => undefined,
+    checks: ({ root }) => {
+      const slugs = listPageSlugs(root)
+      const record = path.join(root, 'content', 'sources.yml')
+      return [
+        { name: 'setup is accepted', ok: setupAccepted(root) },
+        { name: 'the pages were imported', ok: slugs.length > 15, detail: `${slugs.length} pages` },
+        { name: 'the import was recorded', ok: fs.existsSync(record) },
+        sourceTextsTaken(root),
+        publishable(root),
+      ]
+    },
+  },
 ]
+
+/** The pages (and the recorded proposal) show no picture from another host, and at least one picture was saved into the site. */
+function sourceTextsTaken(root: string): Check {
+  const external: string[] = []
+  const scan = (label: string, value: unknown) => {
+    for (const match of JSON.stringify(value ?? {}).matchAll(/!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/g)) external.push(`${label}: ${match[1]}`)
+  }
+  for (const slug of listPageSlugs(root)) scan(slug, readPage(root, slug)?.slots)
+  scan('proposal', readProposal(root).pages)
+  const pictures = fs.existsSync(path.join(root, 'media')) ? fs.readdirSync(path.join(root, 'media')).filter((file) => /\.(?:jpe?g|png|webp|gif)$/i.test(file)).length : 0
+  return { name: 'pictures are saved in the site, none loaded from another host', ok: external.length === 0 && pictures > 0, detail: external.slice(0, 3).join(' | ') || `${pictures} pictures` }
+}
 
 function contains(root: string, slug: string, lang: string, text: string): boolean {
   const body = readPage(root, slug)?.slots.body as Record<string, string> | undefined

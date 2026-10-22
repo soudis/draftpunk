@@ -3,6 +3,7 @@ import { scenarios } from '../evals/scenarios'
 import { modelSupportsVision } from '../lib/model-catalog'
 import { modelFor } from '../lib/provider'
 
+// Scenarios that read other sites need a browser: set BROWSER_PATH (or BROWSER_URL) as well as --network.
 // pnpm --filter @schlor/editor eval -- [--scenario id|all] [--network] [--json]
 //   [--base-url URL] [--model NAME] [--content-model NAME] [--thinking auto|off|default] [--price 0.15,0.003,0.6]   (USD per million tokens: input, cached input, output)
 // The key comes from LLM_API_KEY. Base URL and model default to LLM_BASE_URL and LLM_MODEL.

@@ -41,8 +41,8 @@ const TEXTS = {
     en: 'With “Edit Mode” in the preview, click a sentence and change it right there.',
   },
   'tips.3': {
-    de: 'Gefällt euch eine Website? Fügt den Link ein: Farben und Aufbau übernehme ich, Texte nicht.',
-    en: 'Like a website? Paste its link: I take the colors and the structure, not the texts.',
+    de: 'Gefällt euch eine Website? Link einfügen: Farben und Aufbau übernehme ich, Texte und Bilder auf Wunsch.',
+    en: 'Like a website? Paste its link: I take colors and structure. Texts and pictures only if you say so.',
   },
   'tips.4': {
     de: 'Nicht gelungen? „Undo“ steht unter meiner Antwort. Mit „Publish“ geht die Seite online.',

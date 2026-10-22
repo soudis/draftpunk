@@ -12,8 +12,9 @@ import { addFont, tokenFontsWithoutFiles } from './fonts-add'
 import { addRule } from './rules'
 import { listReferences, readReference, saveReference } from './references'
 import { formatProfile, PROFILE_SOURCE, type RawProfile } from './site-profile'
-import { formatText, TEXT_SOURCE, type RawText } from './site-text'
-import { siteMap } from './site-map'
+import { DATE_SOURCE, formatText, TEXT_SOURCE, type RawText } from './site-text'
+import { collectPaths, siteMap } from './site-map'
+import { importPages, DEFAULT_BATCH, MAX_BATCH } from './import-pages'
 import { SITE_VIEWPORTS, withSitePage, type FetchPage, type SiteViewport } from './web-render'
 import { replaceOnce } from './edit'
 import { slotDefAt, slotPath, valueAt, withValueAt } from './slot-edit'
@@ -980,6 +981,44 @@ export function designTools(root: string, options: ToolOptions = {}): ToolSet {
                 withSitePage(url, { fetchPage: options.fetchPage }, async (page, final) => formatText(final, (await page.evaluate(TEXT_SOURCE)) as RawText)),
               )
               return windowText(text, offset ?? 0, 14_000)
+            },
+          }),
+          import_pages: defineTool('import_pages', {
+            description:
+              'Take the pages of a source site into this site by rule, a batch at a time: it reads each page in a browser, saves the pictures the page uses, writes the page, and points links between imported pages at the new pages. Only for a source site the person named for this, and only for the texts and pictures they said to take. Read two or three pages of each kind first, then give rules: the first rule whose match fits a page decides its layout. match is "/news/" or "/news/*" for everything under that path, "/about" for one page, "*" for the rest. body names the markdown slot for the text (default body), summary a text slot for the first paragraph, lead an image slot for the first picture, dated is for news items. The page title comes from the first heading. Pages in a language the site has (a /en/ prefix) join the page of the same address; nothing is translated. Pass skip with the source addresses you already wrote in the first pass. A call does a batch; when the result says more pages match, call again with the same rules. Pages already imported are left alone unless refresh is true. The result lists what did not fit. Example: {"source":"https://old.example","rules":[{"match":"/news/","layout":"article","dated":true},{"match":"*","layout":"article"}],"skip":["/contact"]}.',
+            input: z.object({
+              source: z.string().describe('Required. Address of the source site.'),
+              rules: z
+                .array(
+                  z.object({
+                    match: z.string().describe('Required. A path such as /news/ or /about, or *.'),
+                    layout: z.string().describe('Required. A layout that already exists.'),
+                    body: z.string().optional().describe('Optional. The markdown slot for the text. Default body.'),
+                    summary: z.string().optional().describe('Optional. A text slot for the first paragraph.'),
+                    lead: z.string().optional().describe('Optional. An image slot for the first picture.'),
+                    dated: z.boolean().optional().describe('Optional. Keep the day the page was published.'),
+                  }),
+                )
+                .min(1)
+                .max(12)
+                .describe('Required. The rules, most specific first.'),
+              skip: z.array(z.string()).optional().describe('Optional. Source addresses already used in the first pass.'),
+              limit: z.number().int().min(1).max(MAX_BATCH).optional().describe(`Optional. Pages in this call. Default ${DEFAULT_BATCH}.`),
+              refresh: z.boolean().optional().describe('Optional. Read imported pages again and overwrite them. Only when the person asks.'),
+            }),
+            execute: async (input) => {
+              const summary = await importPages(root, input, {
+                listPaths: (source) => collectPaths(source, options.fetchPage),
+                readPage: (url) =>
+                  withSitePage(url, { fetchPage: options.fetchPage }, async (page) => {
+                    const raw = (await page.evaluate(TEXT_SOURCE)) as RawText
+                    if (raw.empty || !raw.markdown.trim()) throw new Error(`${url} shows no text to read.`)
+                    const date = String(await page.evaluate(DATE_SOURCE).catch(() => ''))
+                    return { title: raw.title, markdown: raw.markdown, date }
+                  }),
+                fetchPicture: (url) => fetchPublicBytes(url, options.fetchPage),
+              })
+              return finish(root, summary)
             },
           }),
           save_reference: defineTool('save_reference', {

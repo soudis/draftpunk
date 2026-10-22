@@ -19,6 +19,7 @@ const SITE_WRITES = new Set([
   'fit_picture',
   'discard_picture',
   'accept_setup',
+  'import_pages',
 ])
 
 export function toolPartName(part: { type: string; toolName?: string }): string | undefined {
@@ -29,7 +30,11 @@ export function toolPartName(part: { type: string; toolName?: string }): string 
 export function savedChange(part: { type: string; toolName?: string; state?: string; output?: unknown }): string | null {
   const name = toolPartName(part)
   if (!name || !SITE_WRITES.has(name) || part.state !== 'output-available') return null
-  if (typeof part.output === 'string' && part.output.trim()) return part.output.trim()
+  if (typeof part.output === 'string' && part.output.trim()) {
+    const first = part.output.trim().split('\n')[0]
+    if (name === 'import_pages') return first.startsWith('No page was imported') ? null : first
+    return part.output.trim()
+  }
   return `Updated ${name.replaceAll('_', ' ')}.`
 }
 

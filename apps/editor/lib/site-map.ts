@@ -75,13 +75,8 @@ async function text(fetchPage: FetchPage, url: string, accept: string): Promise<
   }
 }
 
-export async function siteMap(input: string, fetchPage: FetchPage = safeFetch): Promise<string> {
-  const url = new URL(/^https?:\/\//i.test(input.trim()) ? input.trim() : `https://${input.trim()}`)
-  const html = await text(fetchPage, url.href, 'text/html,*/*;q=0.1')
-  if (html === null) throw new Error(`Could not read ${url.href}.`)
-  const links = internalLinks(html, url.href)
-  const lines = [`Links on ${url.href} to the same site (${links.length}):`, ...links.slice(0, 60).map((link) => `- ${link.path}${link.label ? ` — ${link.label}` : ''}`)]
-  if (links.length > 60) lines.push(`… and ${links.length - 60} more.`)
+/** The pages a sitemap lists, found through robots.txt or /sitemap.xml. */
+async function sitemapPaths(url: URL, fetchPage: FetchPage): Promise<string[]> {
   const robots = (await text(fetchPage, `${url.origin}/robots.txt`, 'text/plain,*/*;q=0.1')) ?? ''
   const declared = [...robots.matchAll(/^\s*sitemap:\s*(\S+)/gim)].map((match) => match[1])
   const roots = declared.length > 0 ? declared : [`${url.origin}/sitemap.xml`]
@@ -95,7 +90,31 @@ export async function siteMap(input: string, fetchPage: FetchPage = safeFetch): 
     found.push(...parsed.pages)
     queue.push(...parsed.sitemaps.slice(0, 3))
   }
-  const paths = pathsOf(found, url)
-  lines.push('', paths.length === 0 ? 'No sitemap was found.' : `Sitemap lists ${paths.length} pages:`, ...summarizePaths(paths).map((path) => (path.startsWith('/') && !path.includes('…') ? `- ${path}` : `- ${path}`)))
+  return pathsOf(found, url)
+}
+
+function siteUrl(input: string): URL {
+  return new URL(/^https?:\/\//i.test(input.trim()) ? input.trim() : `https://${input.trim()}`)
+}
+
+/** Every page path of a site that its sitemap or its front page names, and whether a sitemap was found. */
+export async function collectPaths(input: string, fetchPage: FetchPage = safeFetch): Promise<{ origin: string; paths: string[]; sitemap: boolean }> {
+  const url = siteUrl(input)
+  const html = await text(fetchPage, url.href, 'text/html,*/*;q=0.1')
+  if (html === null) throw new Error(`Could not read ${url.href}.`)
+  const listed = await sitemapPaths(url, fetchPage)
+  const linked = internalLinks(html, url.href).map((link) => link.path)
+  return { origin: url.origin, paths: [...new Set([...listed, ...linked])].sort(), sitemap: listed.length > 0 }
+}
+
+export async function siteMap(input: string, fetchPage: FetchPage = safeFetch): Promise<string> {
+  const url = siteUrl(input)
+  const html = await text(fetchPage, url.href, 'text/html,*/*;q=0.1')
+  if (html === null) throw new Error(`Could not read ${url.href}.`)
+  const links = internalLinks(html, url.href)
+  const lines = [`Links on ${url.href} to the same site (${links.length}):`, ...links.slice(0, 60).map((link) => `- ${link.path}${link.label ? ` — ${link.label}` : ''}`)]
+  if (links.length > 60) lines.push(`… and ${links.length - 60} more.`)
+  const paths = await sitemapPaths(url, fetchPage)
+  lines.push('', paths.length === 0 ? 'No sitemap was found.' : `Sitemap lists ${paths.length} pages:`, ...summarizePaths(paths).map((path) => `- ${path}`))
   return lines.join('\n')
 }

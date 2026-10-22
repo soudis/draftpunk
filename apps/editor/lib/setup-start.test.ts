@@ -6,26 +6,59 @@ import test from 'node:test'
 import { initSite, setupAccepted } from '@schlor/generator'
 import { ensureGit, git } from './git'
 import { systemPrompt } from './prompt'
-import { buildSetupMessage, canGoOn, setupQuestions } from './setup-questions'
+import { buildSetupMessage, canGoOn, setupQuestions, visibleQuestions } from './setup-questions'
 import { skipSetup } from './setup-start'
 import { parseEditorLanguage, uiText } from './ui-text'
 
 const author = { name: 'Ada', email: 'ada@schlor.org' }
 
-test('the setup asks seven short questions, and only the name and the description have to be answered', () => {
+test('the setup has ten short questions, and only the name and the description have to be answered', () => {
   for (const language of ['de', 'en'] as const) {
     const questions = setupQuestions(language)
-    assert.deepEqual(questions.map((question) => question.id), ['name', 'about', 'languages', 'look', 'sections', 'calendar', 'contact'])
+    assert.deepEqual(questions.map((question) => question.id), ['name', 'source', 'take', 'scope', 'about', 'languages', 'look', 'sections', 'calendar', 'contact'])
     assert.deepEqual(questions.filter((question) => question.required).map((question) => question.id), ['name', 'about'])
     for (const question of questions) assert.ok(question.title.length > 5, question.id)
     assert.ok(questions.find((question) => question.id === 'sections')?.options?.length)
   }
   assert.equal(setupQuestions('de')[0].title, 'Wie heißt euer Projekt?')
   assert.equal(setupQuestions('en')[0].title, 'What is your project called?')
-  const [name, , languages] = setupQuestions('de')
+  const name = setupQuestions('de')[0]
+  const languages = setupQuestions('de').find((question) => question.id === 'languages')!
   assert.equal(canGoOn(name, '  '), false)
   assert.equal(canGoOn(name, 'SchloR'), true)
   assert.equal(canGoOn(languages, undefined), true)
+})
+
+test('the questions about an existing website appear only when they make sense', () => {
+  const ids = (language: 'de' | 'en', answers: Parameters<typeof visibleQuestions>[1]) => visibleQuestions(language, answers).map((question) => question.id)
+  assert.deepEqual(ids('de', {}), ['name', 'source', 'about', 'languages', 'look', 'sections', 'calendar', 'contact'])
+  assert.deepEqual(ids('de', { source: 'https://schlor.org' }), ['name', 'source', 'take', 'about', 'languages', 'look', 'sections', 'calendar', 'contact'])
+  assert.deepEqual(ids('de', { source: 'https://schlor.org', take: 'Die Texte, Die Bilder' }), ['name', 'source', 'take', 'scope', 'about', 'languages', 'look', 'sections', 'calendar', 'contact'])
+  assert.deepEqual(ids('en', { source: 'https://schlor.org', take: 'The look' }), ['name', 'source', 'take', 'about', 'languages', 'sections', 'calendar', 'contact'])
+  assert.deepEqual(ids('en', { source: ' ', take: 'The look, The texts' }), ['name', 'source', 'about', 'languages', 'look', 'sections', 'calendar', 'contact'])
+  const closed = visibleQuestions('de', { source: 'https://x.org', take: 'Die Texte' }).filter((question) => question.closed).map((question) => question.id)
+  assert.deepEqual(closed, ['take', 'scope', 'calendar'])
+})
+
+test('an answer that no longer applies is left out of the message', () => {
+  const message = buildSetupMessage(
+    { name: 'Hall', about: 'A hall.', source: 'https://hall.example', take: 'The texts, The pictures', scope: 'Every page and post', look: 'bold and modern' },
+    'en',
+  )
+  assert.equal(
+    message,
+    [
+      'Set up the website. These are my answers:',
+      '- Project name: Hall',
+      '- Existing website: https://hall.example',
+      '- Take from it: The texts, The pictures',
+      '- How much: Every page and post',
+      '- The project: A hall.',
+      '- Model site or mood: bold and modern',
+    ].join('\n'),
+  )
+  const dropped = buildSetupMessage({ name: 'Hall', about: 'A hall.', take: 'The texts', scope: 'Every page and post' }, 'en')
+  assert.equal(dropped, 'Set up the website. These are my answers:\n- Project name: Hall\n- The project: A hall.')
 })
 
 test('the answers become one message in the language of the editor, without the questions left out', () => {
