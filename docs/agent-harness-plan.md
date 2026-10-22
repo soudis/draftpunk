@@ -269,6 +269,13 @@ Decided in a grilling session; ADRs 0015 and 0016 and the glossary terms Tips an
 **Stage D: the editor UI**
 - In order: the top bar (site name, page switcher, desktop and phone preview, Edit Mode in a preview toolbar, one strong Publish with a change count, Revert in a menu) and the composer; then the chat (clearer messages, tool steps folded into one line, an Undo on each change); then the Settings drawer and a two-tab phone layout. Hand-written CSS with variables, light and dark.
 
+**Stage E: a source site in setup** (decided, not built; ADR 0017)
+- Three scripted steps after the project name: "Is there already a website of yours?" (a link, optional); "What should I take from it?" (look, texts, pictures; shown only with a link); "The main pages or every page and post?" (shown only when texts or pictures were chosen). Choosing "look" skips the "model site or mood" question. "What is it?" stays required. The review and the first message name the source site and what to take.
+- The setup prompt: take words and pictures only from a source site named for that purpose; read the pages that match the chosen sections, plus contact and imprint, and put them in the first pass (up to about 10 pages); say plainly when the site could not be read.
+- `import_pages`: the agent sets a mapping from a few pages; the tool reads each page (`read_page_text`), writes it with `write_page`-level checks, saves its pictures through the picture pipeline, and reports progress and what did not fit. Limits: 200 pages and 300 pictures per run, a list of what was skipped, `content/sources.yml` for continuing. It runs after the proposal is accepted, as one reply (one Undo). Languages: only those both sides have, nothing translated. The imprint is taken, the privacy page is not, and the menu follows the chosen sections.
+- Tips: the card now says a link gives the look, and the person can say to take its texts and pictures too.
+- Evals: a setup with a source site (schlor.org), the first pass and a full import.
+
 ### Stage A is built
 
 - The generator adds `loading`, `decoding`, `width` and `height` to every picture (the picture in the header and the first one after it stay eager; an attribute the design wrote is kept), a description, Open Graph, canonical and theme-color tags (a tag the design wrote is kept), font preload links, `robots.txt`, `404.html`, and `sitemap.xml` and canonical addresses when `site.yml` has a `url`.

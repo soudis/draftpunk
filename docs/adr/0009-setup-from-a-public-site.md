@@ -1,3 +1,5 @@
 # Setup reads any public site and writes after acceptance
 
+_Partly superseded by [0017](0017-setup-takes-content-from-a-source-site.md): a full import of a source site is now offered._
+
 Setup is one conversation that may change the design and write the first content. From a public URL it reads one page at a time. The Editor chooses the further pages, including posts and galleries, and calls the reader again for each one. It then proposes languages, layouts, sections, event fields, look, and a first pass of content. It writes when the person accepts. Directives that already name a decision count as acceptance for that decision. The WordPress importer stays the schloR migration. A general WordPress importer was rejected because the next housing project is not a copy of that site, and a full archive import is not required to start.
