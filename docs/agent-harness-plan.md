@@ -249,3 +249,22 @@ Glossary terms to add or change when built: **Layout** (now a folder with a slot
 2. Phase 2, the foundation. Write its ADR first. It can be built in two steps: slots and `write_page` first, then layouts as folders with the catalog and scoped styles.
 3. Phase 3, then Phase 4.
 4. Phase 5, then Phase 6 and Phase 7.
+
+## 7. Next: the editor, setup, and the baseline
+
+Decided in a grilling session; ADRs 0015 and 0016 and the glossary terms Tips and Baseline record the reasons.
+
+**Stage A: the baseline** (first, because setup builds on it)
+- The generator adds picture attributes, `sitemap.xml`, `robots.txt`, `404.html`, font preload, canonical, descriptions and Open Graph tags.
+- The starter shell and styles self-host Source Sans 3 and Source Serif 4, add `@view-transition`, a picture fade-in, a skip link, visible focus, reduced-motion handling, and a phone menu. No external host anywhere.
+- The layout guard refuses external resources in templates, shell and stylesheets. Outbound links stay allowed.
+- `add_font` downloads an open-licence family on the server and registers it as a token.
+
+**Stage B: setup that starts by itself**
+- A fresh instance opens in Setup with a scripted first message and quick replies, no model call: project name, what it is, languages, a site whose look is liked or a mood, expected sections, calendar yes or no, email and imprint details. Only the first two are required, and "skip" keeps the plain starter. The answers go to the agent as the first message.
+
+**Stage C: Tips**
+- An empty chat shows a short card with example requests, brought back by a "?" in the top bar. The editor's texts, Tips and the scripted questions are German and English, German first, switched in Settings.
+
+**Stage D: the editor UI**
+- In order: the top bar (site name, page switcher, desktop and phone preview, Edit Mode in a preview toolbar, one strong Publish with a change count, Revert in a menu) and the composer; then the chat (clearer messages, tool steps folded into one line, an Undo on each change); then the Settings drawer and a two-tab phone layout. Hand-written CSS with variables, light and dark.

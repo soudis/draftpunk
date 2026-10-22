@@ -45,7 +45,7 @@ A language a site instance authors. The first one is the default and has no addr
 _Avoid_: locale, translation
 
 **Setup**:
-The conversation that decides a new site instance's languages, layouts, sections, event fields, look, and initial content. It ends when that proposal is accepted.
+The conversation that decides a new site instance's languages, layouts, labels, tokens, look, and initial content. On a fresh instance it starts by itself, with a few scripted questions that can be skipped, and it ends when its proposal is accepted.
 _Avoid_: install, onboarding, wizard
 
 **Tag**:
@@ -83,6 +83,14 @@ _Avoid_: variable, theme value, style guide
 **Rule**:
 A lasting preference of the person about how the site looks, kept as one short line and followed in every later chat.
 _Avoid_: setting, instruction, memory
+
+**Tips**:
+A short card in an empty chat that says what can be asked, how to change a sentence by clicking it, and that Undo and Publish exist, with a few example requests. It is fixed text in the editor's language, and it goes away with the first message.
+_Avoid_: help, tutorial, tour
+
+**Baseline**:
+What every site gets without being asked for: pictures that load lazily and keep their space, fonts served from the site itself, a soft page transition, a sitemap, robots and not-found page, page descriptions, a skip link, and visible keyboard focus. The generator does the mechanical part and the starter design holds the visual part.
+_Avoid_: boilerplate, defaults, preset
 
 **Reference**:
 A site the person likes, kept with how it looks (colors by role, type, shape, the sections in order) and what they like about it, so later chats can match it. It describes a look and holds no content of the site.
