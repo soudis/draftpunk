@@ -1012,7 +1012,7 @@ function restoreLayout(designDir: string, name: string, before: { layout: string
 export function setupTools(root: string): ToolSet {
   return {
     propose_setup: defineTool('propose_setup', {
-      description: 'Record a setup proposal without writing it onto the site. The person accepts it before it is applied.',
+      description: 'Record a setup proposal, or part of one, without writing it onto the site. Each call adds the parts it carries to what is recorded, and a part sent again replaces the earlier one, so a long proposal goes in several calls. The person accepts it before it is applied.',
       input: z.object({ proposal: z.record(z.string(), z.unknown()).describe('Required. The proposal.') }),
       execute: ({ proposal }) => {
         recordProposal(root, proposal as SetupProposal)

@@ -98,6 +98,9 @@ export function defineTool<S extends z.ZodType>(name: string, definition: Define
       validate: (value) => ({ success: true, value: value as z.infer<S> }),
     }),
     execute: async (raw: unknown) => {
+      if (raw && typeof raw === 'object' && '__invalid_json' in raw) {
+        fail(`${name}: the arguments could not be read. They may be cut off or not valid JSON. Send them again. Write a new line inside a text as \\n and a quote as \\". A long input goes in parts when the tool allows it. Nothing was changed.`)
+      }
       const parsed = definition.input.safeParse(coerceInput(schema, raw))
       if (!parsed.success) {
         fail(`${name}: ${describeIssues(parsed.error, raw)}. Nothing was changed.`)

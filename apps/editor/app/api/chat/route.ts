@@ -5,7 +5,7 @@ import { chatErrorText } from '@/lib/api-error'
 import { modelFor } from '@/lib/provider'
 import { classifyRequest, planRequest } from '@/lib/routing'
 import { modelSupportsVision } from '@/lib/model-catalog'
-import { needsReasoningPassBack } from '@/lib/thinking'
+import { needsReasoningPassBack, outputLimit } from '@/lib/thinking'
 import { sessionFromRequest } from '@/lib/session'
 import { chatDatabasePath, siteRoot } from '@/lib/site'
 import { agentRun } from '@/lib/agent'
@@ -53,6 +53,7 @@ export async function POST(request: Request) {
       vision: modelSupportsVision(modelSettings.baseURL, plan.model, process.env.LLM_VISION),
       cacheDir: path.join(path.dirname(chatDatabasePath()), 'web-cache'),
       keepReasoning: needsReasoningPassBack(modelSettings.baseURL) && plan.thinking === 'default',
+      maxOutputTokens: outputLimit(modelSettings.baseURL),
     }),
     messages: await convertToModelMessages(body.messages),
     abortSignal: request.signal,

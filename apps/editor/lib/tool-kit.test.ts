@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { z } from 'zod'
-import { repairToolInput } from './agent'
+import { INVALID_JSON, repairToolInput } from './agent'
 import { coerceInput, defineTool, inputJsonSchema, ToolError } from './tool-kit'
 
 const call = { toolCallId: 'x', messages: [] as never[] }
@@ -55,5 +55,25 @@ test('arguments in a code fence or encoded twice are repaired, others are not', 
   assert.deepEqual(JSON.parse(repairToolInput({ ...base, input: '```json\n{"slug":"a"}\n```' })!.input), { slug: 'a' })
   assert.deepEqual(JSON.parse(repairToolInput({ ...base, input: JSON.stringify('{"slug":"a"}') })!.input), { slug: 'a' })
   assert.deepEqual(JSON.parse(repairToolInput({ ...base, input: 'Here you go: {"slug":"a"} thanks' })!.input), { slug: 'a' })
-  assert.equal(repairToolInput({ ...base, input: '{"slug":' }), null)
+  assert.deepEqual(JSON.parse(repairToolInput({ ...base, input: '{"slug":' })!.input), { __invalid_json: true })
+})
+
+test('arguments with a raw new line in a text or a trailing comma are repaired without changing a word, and others are marked', async () => {
+  const base = { type: 'tool-call' as const, toolCallId: 'c', toolName: 'propose_setup' }
+  const withNewline = '{"slug": "a", "body": "Line one\nLine two\twith tab, ]"}'
+  assert.deepEqual(JSON.parse(repairToolInput({ ...base, input: withNewline })!.input), { slug: 'a', body: 'Line one\nLine two\twith tab, ]' })
+  assert.deepEqual(JSON.parse(repairToolInput({ ...base, input: '{"a": [1, 2,], "b": "x, ]",}' })!.input), { a: [1, 2], b: 'x, ]' })
+  const cutOff = repairToolInput({ ...base, input: '{"proposal": {"pages": [{"slug": "a", "body": "A very long te' })!
+  assert.deepEqual(JSON.parse(cutOff.input), { [INVALID_JSON]: true })
+  assert.deepEqual(JSON.parse(repairToolInput({ ...base, input: '[1, 2]' })!.input), { [INVALID_JSON]: true })
+  const tool = defineTool('propose_setup', { description: 'x', input: z.object({ proposal: z.record(z.string(), z.unknown()) }), execute: () => 'ok' })
+  await assert.rejects(
+    async () => tool.execute!({ [INVALID_JSON]: true } as never, call),
+    (error: Error) => {
+      assert.ok(error instanceof ToolError)
+      assert.match(error.message, /^propose_setup: the arguments could not be read\. They may be cut off or not valid JSON\. Send them again\./)
+      assert.ok(error.message.length < 300)
+      return true
+    },
+  )
 })

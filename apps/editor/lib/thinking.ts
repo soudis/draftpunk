@@ -40,3 +40,12 @@ export function shapeRequestBody<T extends ChatBody>(body: T, context: { baseURL
   }
   return shaped as T
 }
+
+/**
+ * How much one answer may be, for providers that cap it low by default and allow a lot. A proposal or a page
+ * of layouts is long, and an answer that is cut off in the middle of its arguments cannot be used.
+ */
+export function outputLimit(baseURL: string): number | undefined {
+  const base = normalizeModelBase(baseURL)
+  return base === normalizeModelBase(DEEPSEEK) || base === normalizeModelBase(ZAI) ? 32_768 : undefined
+}
