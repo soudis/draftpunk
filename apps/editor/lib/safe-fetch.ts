@@ -79,6 +79,80 @@ export function publicLookup(
   })
 }
 
+type HostState = { active: number; waiting: (() => void)[]; limit: number; pausedUntil: number; calm: number; timer?: NodeJS.Timeout }
+
+/**
+ * How many requests to one host are in flight at once, across every caller: the reader, the picture fetch, the
+ * site map. A page makes a hundred requests, and a few pages read together must not hit a small host with
+ * hundreds. A host that answers 429 or 503 gets fewer, and a pause for as long as it asks.
+ */
+export class HostGate {
+  private hosts = new Map<string, HostState>()
+
+  constructor(
+    readonly max = 8,
+    readonly minimum = 2,
+    private now: () => number = Date.now,
+  ) {}
+
+  private state(host: string): HostState {
+    let state = this.hosts.get(host)
+    if (!state) {
+      state = { active: 0, waiting: [], limit: this.max, pausedUntil: 0, calm: 0 }
+      this.hosts.set(host, state)
+    }
+    return state
+  }
+
+  /** The number of requests to this host that may run at once now. */
+  limitFor(host: string): number {
+    return this.state(host).limit
+  }
+
+  private pump(state: HostState): void {
+    if (state.timer) return
+    while (state.waiting.length > 0 && state.active < state.limit) {
+      const wait = state.pausedUntil - this.now()
+      if (wait > 0) {
+        state.timer = setTimeout(() => {
+          state.timer = undefined
+          this.pump(state)
+        }, wait)
+        state.timer.unref?.()
+        return
+      }
+      state.active += 1
+      state.waiting.shift()?.()
+    }
+  }
+
+  async run(host: string, task: () => Promise<Response>): Promise<Response> {
+    const state = this.state(host)
+    await new Promise<void>((resolve) => {
+      state.waiting.push(resolve)
+      this.pump(state)
+    })
+    try {
+      const response = await task()
+      if (response.status === 429 || response.status === 503) {
+        const asked = Number(response.headers.get('retry-after'))
+        state.limit = Math.max(this.minimum, Math.floor(state.limit / 2))
+        state.pausedUntil = this.now() + Math.min(Number.isFinite(asked) && asked > 0 ? asked * 1000 : 2_000, 10_000)
+        state.calm = 0
+      } else if (state.limit < this.max && ++state.calm >= 20) {
+        state.limit += 1
+        state.calm = 0
+      }
+      return response
+    } finally {
+      state.active -= 1
+      this.pump(state)
+    }
+  }
+}
+
+export const hostGate = new HostGate()
+
 const BROWSER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 schloR-editor'
 
 export type SafeFetchInit = RequestInit & {
@@ -91,6 +165,16 @@ export type SafeFetchInit = RequestInit & {
  * can check the next address too. Only ports 80 and 443 and only public addresses are reached.
  */
 export async function safeFetch(input: string, init: SafeFetchInit = {}): Promise<Response> {
+  let host = ''
+  try {
+    host = new URL(input).hostname.toLowerCase()
+  } catch {
+    // An address that cannot be read fails in fetchOnce, with its message.
+  }
+  return host ? hostGate.run(host, () => fetchOnce(input, init)) : fetchOnce(input, init)
+}
+
+async function fetchOnce(input: string, init: SafeFetchInit): Promise<Response> {
   const url = new URL(input)
   if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error(`${input} is not a public website.`)
   if (url.username || url.password) throw new Error(`${input} is not a public website.`)

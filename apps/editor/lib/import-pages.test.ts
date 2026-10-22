@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import { readPage, readYaml } from '@schlor/generator'
+import { listPageSlugs, readPage, readYaml } from '@schlor/generator'
 import { ensureGit } from './git'
 import {
   firstParagraph,
@@ -238,4 +238,67 @@ test('a picture name written with percent codes is read as the word it spells', 
     readPage: async () => ({ title: 'Essen', markdown: '![x](https://old.example/up/Ern%C3%A4hrung.png)', date: '' }),
   }))
   assert.ok(fs.existsSync(path.join(root, 'media', 'ernahrung.png')))
+})
+
+test('a call stops starting page reads when its time is used up, and the next call continues without doubling anything', async () => {
+  const root = site()
+  const paths = Array.from({ length: 30 }, (_value, index) => `/seite-${String(index).padStart(2, '0')}`)
+  let running = 0
+  let most = 0
+  const reads: string[] = []
+  const slow = {
+    ...deps(),
+    listPaths: async () => ({ origin: 'https://old.example', paths, sitemap: true }),
+    readPage: async (url: string) => {
+      running += 1
+      most = Math.max(most, running)
+      reads.push(url)
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      running -= 1
+      return { title: `Titel ${url}`, markdown: `Text von ${url}`, date: '' }
+    },
+    budgetMs: 100,
+  }
+  const rules = [{ match: '*', layout: 'article' }]
+  const first = await importPages(root, { source: 'https://old.example', rules }, slow)
+  assert.match(first, /Imported \d+ pages?/)
+  const firstDone = reads.length
+  assert.ok(firstDone > 0 && firstDone < 30, `read ${firstDone}`)
+  assert.ok(most > 1 && most <= 5, `at most ${most} at once`)
+  assert.match(first, /\d+ more pages match your rules\. Call import_pages again/)
+  let calls = 1
+  let text = first
+  while (/more pages match/.test(text) && calls < 10) {
+    text = await importPages(root, { source: 'https://old.example', rules }, slow)
+    calls += 1
+  }
+  assert.match(text, /Every page that matches your rules is imported/)
+  assert.equal(new Set(reads).size, 30)
+  assert.equal(reads.length, 30)
+  assert.equal(listPageSlugs(root).filter((slug) => slug.startsWith('seite-')).length, 30)
+})
+
+test('pictures are saved a few at a time, and each one once', async () => {
+  const root = site()
+  const base = deps()
+  let running = 0
+  let most = 0
+  const fetched: string[] = []
+  const pictures = {
+    ...base,
+    listPaths: async () => ({ origin: 'https://old.example', paths: ['/galerie'], sitemap: true }),
+    readPage: async () => ({ title: 'Galerie', markdown: Array.from({ length: 10 }, (_value, index) => `![Bild ${index}](https://old.example/up/bild-${index}.png)`).join('\n\n'), date: '' }),
+    fetchPicture: async (url: string) => {
+      running += 1
+      most = Math.max(most, running)
+      fetched.push(url)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      running -= 1
+      return { url, body: PNG }
+    },
+  }
+  await importPages(root, { source: 'https://old.example', rules: [{ match: '*', layout: 'article' }] }, pictures)
+  assert.equal(fetched.length, 10)
+  assert.equal(new Set(fetched).size, 10)
+  assert.ok(most > 1 && most <= 4, `at most ${most} at once`)
 })

@@ -5,8 +5,12 @@ import { fail } from './tool-kit'
 
 export const MAX_PAGES = 200
 export const MAX_PICTURES = 300
-export const DEFAULT_BATCH = 12
-export const MAX_BATCH = 20
+// A call reads pages until its time is used up, so a batch is as large as the time allows. The limit is only a ceiling.
+export const DEFAULT_BATCH = 80
+export const MAX_BATCH = 120
+export const CALL_BUDGET_MS = 75_000
+export const READ_CONCURRENCY = 5
+export const PICTURE_CONCURRENCY = 4
 
 /** How the pages whose address matches go into a layout: which slot takes the text, the first sentence, the first picture. */
 export type ImportRule = {
@@ -38,6 +42,8 @@ export type ImportDeps = {
   listPaths(source: string): Promise<{ origin: string; paths: string[]; sitemap: boolean }>
   readPage(url: string): Promise<PageRead>
   fetchPicture(url: string): Promise<{ url: string; body: Uint8Array }>
+  /** How long a call may keep starting page reads. Default 75 seconds. */
+  budgetMs?: number
 }
 
 type SourceRecord = { source: string; pages: Record<string, string>; pictures: Record<string, string> }
@@ -191,7 +197,7 @@ async function pool<T>(items: T[], size: number, run: (item: T) => Promise<void>
 }
 
 type Group = { rest: string; paths: Record<string, string> }
-type Staged = { group: Group; rule: ImportRule; slug: string; reads: Record<string, PageRead>; failed: string[] }
+type Staged = { group: Group; rule: ImportRule; slug: string; reads: Record<string, PageRead>; failed: string[]; started: boolean }
 
 function checkRules(root: string, rules: ImportRule[]): void {
   if (rules.length === 0) fail('Give at least one rule: which pages go into which layout.')
@@ -294,12 +300,16 @@ export async function importPages(root: string, input: ImportInput, deps: Import
       continue
     }
     taken.add(slug)
-    staged.push({ group: item.group, rule: item.rule, slug, reads: {}, failed: [] })
+    staged.push({ group: item.group, rule: item.rule, slug, reads: {}, failed: [], started: false })
   }
+  // No read is started after the call's time is used up; a page that was not started waits for the next call.
+  const deadline = Date.now() + (deps.budgetMs ?? CALL_BUDGET_MS)
   await pool(
     staged.flatMap((entry) => Object.entries(entry.group.paths).map(([lang, address]) => ({ entry, lang, address }))),
-    3,
+    READ_CONCURRENCY,
     async ({ entry, lang, address }) => {
+      if (!entry.started && Date.now() >= deadline) return
+      entry.started = true
       try {
         entry.reads[lang] = await deps.readPage(new URL(address, origin).href)
       } catch (error) {
@@ -307,19 +317,23 @@ export async function importPages(root: string, input: ImportInput, deps: Import
       }
     },
   )
+  const waiting = staged.filter((entry) => !entry.started)
+  if (waiting.length > 0) staged.splice(0, staged.length, ...staged.filter((entry) => entry.started))
 
   // Phase 2: save the pictures the pages use.
   const pictureSkips = { read: 0, over: 0 }
   let newPictures = 0
+  let pictureRoom = Math.max(0, MAX_PICTURES - Object.keys(record.pictures).length)
   const pictureMap = new Map<string, string | null>()
   const saveOne = async (src: string, alt: string): Promise<string | null> => {
     const original = originalPicture(src)
     const known = record.pictures[src] ?? (original ? record.pictures[original] : undefined)
     if (known) return known
-    if (Object.keys(record.pictures).length >= MAX_PICTURES) {
+    if (pictureRoom <= 0) {
       pictureSkips.over += 1
       return null
     }
+    pictureRoom -= 1
     for (const candidate of original ? [original, src] : [src]) {
       try {
         const fetched = await deps.fetchPicture(candidate)
@@ -337,6 +351,7 @@ export async function importPages(root: string, input: ImportInput, deps: Import
         continue
       }
     }
+    pictureRoom += 1
     pictureSkips.read += 1
     return null
   }
@@ -345,13 +360,16 @@ export async function importPages(root: string, input: ImportInput, deps: Import
     skipped.push(entry.failed.find((line) => line.startsWith(entry.group.paths[defaultLang])) ?? `${entry.group.paths[defaultLang]}: could not be read`)
     return false
   })
-  for (const entry of readable) {
-    for (const read of Object.values(entry.reads)) {
-      for (const picture of pictureRefs(read.markdown)) {
-        if (!pictureMap.has(picture.src)) pictureMap.set(picture.src, await saveOne(picture.src, picture.alt))
-      }
-    }
-  }
+  const wanted = new Map<string, string>()
+  for (const entry of readable) for (const read of Object.values(entry.reads)) for (const picture of pictureRefs(read.markdown)) if (!wanted.has(picture.src)) wanted.set(picture.src, picture.alt)
+  // Two addresses of one picture (a thumbnail and its original) are saved once, even when they are asked for together.
+  const saving = new Map<string, Promise<string | null>>()
+  await pool([...wanted], PICTURE_CONCURRENCY, async ([src, alt]) => {
+    const key = originalPicture(src) ?? src
+    const running = saving.get(key) ?? saveOne(src, alt)
+    saving.set(key, running)
+    pictureMap.set(src, await running)
+  })
 
   // Phase 3: every address that now has a page, so links can point at it, and then the pages themselves.
   const known = new Map<string, string>()
@@ -405,7 +423,7 @@ export async function importPages(root: string, input: ImportInput, deps: Import
   const relinked = relinkEarlier(root, record, origin, known, new Set(done.map((entry) => entry.slug)))
   writeYaml(recordPath(root), record)
 
-  const remaining = pending.length - batch.length
+  const remaining = pending.length - batch.length + waiting.length
   const lines = [
     done.length === 0
       ? 'No page was imported in this call.'

@@ -21,3 +21,50 @@ test('a name that points at a private address is refused when the socket connect
   })
   assert.equal(outcome.error?.code, 'EBLOCKED')
 })
+
+test('a host gets at most the allowed number of requests at once, and another host is not held up by it', async () => {
+  const { HostGate } = await import('./safe-fetch')
+  const gate = new HostGate(3)
+  let active = 0
+  let most = 0
+  const task = async () => {
+    active += 1
+    most = Math.max(most, active)
+    await new Promise((resolve) => setTimeout(resolve, 15))
+    active -= 1
+    return new Response('ok')
+  }
+  await Promise.all(Array.from({ length: 20 }, () => gate.run('slow.example', task)))
+  assert.equal(most, 3)
+  const started: string[] = []
+  const blocked = gate.run('a.example', async () => {
+    started.push('a')
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    return new Response('a')
+  })
+  const other = await gate.run('b.example', async () => {
+    started.push('b')
+    return new Response('b')
+  })
+  assert.equal(await other.text(), 'b')
+  await blocked
+  assert.deepEqual(started, ['a', 'b'])
+})
+
+test('a host that answers 429 gets fewer requests and a pause, and recovers when it is calm again', async () => {
+  const { HostGate } = await import('./safe-fetch')
+  const gate = new HostGate(8, 2)
+  assert.equal(gate.limitFor('h'), 8)
+  await gate.run('h', async () => new Response('slow down', { status: 429, headers: { 'retry-after': '0.15' } }))
+  assert.equal(gate.limitFor('h'), 4)
+  // The pause is real: the next request waits for it.
+  const before = Date.now()
+  await gate.run('h', async () => new Response('', { status: 503, headers: { 'retry-after': '0.05' } }))
+  assert.ok(Date.now() - before >= 120, `waited ${Date.now() - before} ms`)
+  assert.equal(gate.limitFor('h'), 2)
+  await gate.run('h', async () => new Response('', { status: 503, headers: { 'retry-after': '0.05' } }))
+  assert.equal(gate.limitFor('h'), 2)
+  await new Promise((resolve) => setTimeout(resolve, 80))
+  for (let index = 0; index < 130; index += 1) await gate.run('h', async () => new Response('ok'))
+  assert.equal(gate.limitFor('h'), 8)
+})
