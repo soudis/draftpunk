@@ -1,0 +1,5 @@
+# Thinking is for design work, and old turns are rebuilt from the site
+
+DeepSeek's thinking mode needs the reasoning of every earlier turn sent back whenever tools are sent, or the API answers 400. In the first real setup that reasoning was half of the stored history (265k of 531k characters), and each step re-sent about 146k tokens. So thinking stays on for design work (layouts, styles, the setup proposal) and goes off for mechanical work (content edits, `import_pages`, the first pass of pages). When the history passes about 100k tokens, older turns are dropped and replaced by what the site itself shows: the person's messages, the replies' texts, and a fresh list of pages, layouts and pictures read from the files. The history sent to the model is also repaired as its last step, so every tool result has its call and no empty message goes out.
+
+Rejected: summarising old turns with a model call. It costs a call, loses detail unpredictably, and the site files already are the exact memory of what was done. The price of the chosen way: the agent forgets why something was done in an old turn, and has to read the file again.

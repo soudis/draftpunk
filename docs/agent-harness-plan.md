@@ -276,6 +276,19 @@ Decided in a grilling session; ADRs 0015 and 0016 and the glossary terms Tips an
 - Tips: the card now says a link gives the look, and the person can say to take its texts and pictures too.
 - Evals: a setup with a source site (schlor.org), the first pass and a full import.
 
+**Stage F: robustness after the first real setup** (decided, not built; ADR 0017 amended, ADR 0018)
+
+The first real setup (22 Oct, before Stage E; one chat, 6 turns, 66 steps, 6.1M input tokens of which 89% cached, 116k output) ended in a chat that failed on every message. What the chat database showed, and what is done about each:
+1. A chat locked on "Messages with role 'tool' must be a response to a preceding message with 'tool_calls'". `fitBudget` in `lib/history.ts` drops an assistant message and stops before its tool results when the budget is reached, so orphan tool results lead the history; reproduced from the stored chat with reasoning pass-back on. Fix: drop assistant and tool messages as one group, and finish with a repair that removes any tool result without its call and any call without its result; a failed turn leaves no empty assistant message in the history; one unit test per case, and a test that replays the stored chat.
+2. The model wrote a tool call as text (`<｜｜DSML｜｜ calls>`); the step ended with "stop", the call never ran, and the person saw the markup. Fix: the markup is hidden in the chat, and the step is retried once with a short nudge saying the last call was not run.
+3. Pages proposed with the generated layouts `calendar` and `archive` were only refused at `accept_setup`, 14 steps later, and the setup was never accepted. Fix: `propose_setup` checks page layouts (and the other fixed rules) when it records, and says what to change; `accept_setup` stays all-or-nothing but lists everything to fix. A "Finish setup" button next to the Setup toggle ends a setup that was built by hand. The prompt says the calendar and the news list are generated: the menu links to them, no page uses their layouts.
+4. A page address without a trailing slash fails to read ("it could not be reached"): the page reader answers a 301 from a fulfilled route, which the browser does not follow. `import_pages` reads pages the same way, so it fails on those addresses too. Fix: follow redirects, each hop checked as a public address, before the browser opens the page, and for sub-requests inside the route.
+5. Three parallel `write_page` calls had arguments that could not be read, and the broken text is replaced by a marker, so the cause is unknown. Fix: keep the first 4,000 characters of the raw arguments of a broken call in a log table, with the finish reason and token counts.
+6. The person had to ask for a menu with groups and for it to match the original, and the dropdown did nothing on hover. Fix: groups in `nav.yml` are rendered by the starter shell and generator (hover and focus on a wide screen, tap on a phone), and `check_page` hovers every menu entry and reports sub-links that stay hidden. When a source site is used, its menu structure is copied and pointed at the imported pages; entries without a page are listed (ADR 0017 amended).
+7. History size (ADR 0018): thinking off for mechanical work, older turns replaced by what the site shows past about 100k tokens.
+
+Order: the quick fixes first (1, 2, 3, 4, 5) in one release, pushed together with Stage E after one real run of the `setup-with-source-site` eval against the model; then the menu (6); then the history size (7).
+
 ### Stage A is built
 
 - The generator adds `loading`, `decoding`, `width` and `height` to every picture (the picture in the header and the first one after it stay eager; an attribute the design wrote is kept), a description, Open Graph, canonical and theme-color tags (a tag the design wrote is kept), font preload links, `robots.txt`, `404.html`, and `sitemap.xml` and canonical addresses when `site.yml` has a `url`.

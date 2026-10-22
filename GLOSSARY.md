@@ -45,7 +45,7 @@ A language a site instance authors. The first one is the default and has no addr
 _Avoid_: locale, translation
 
 **Setup**:
-The conversation that decides a new site instance's languages, layouts, labels, tokens, look, and initial content. On a fresh instance it starts by itself, with a few scripted questions that can be skipped, including whether a source site exists and what to take from it, and it ends when its proposal is accepted.
+The conversation that decides a new site instance's languages, layouts, labels, tokens, look, and initial content. On a fresh instance it starts by itself, with a few scripted questions that can be skipped, including whether a source site exists and what to take from it, and it ends when its proposal is accepted or when the person finishes it by hand.
 _Avoid_: install, onboarding, wizard
 
 **Tag**:
@@ -97,7 +97,7 @@ A site the person likes, kept with how it looks (colors by role, type, shape, th
 _Avoid_: inspiration, template, import
 
 **Source site**:
-A public website of the person, or one they may use, from which setup takes texts and pictures, and optionally the look. Setup asks for it by itself. The person says what to take: the look, texts, pictures, and whether that is the main pages or every page and post. Unlike a reference, a source site gives content to the new site instance.
+A public website of the person, or one they may use, from which setup takes texts and pictures, and optionally the look. Setup asks for it by itself. The person says what to take: the look, texts, pictures, and whether that is the main pages or every page and post. Its menu structure is copied too, so the new menu has the same groups. Unlike a reference, a source site gives content to the new site instance.
 _Avoid_: import, migration, old site, copy
 
 **Catalog**:
