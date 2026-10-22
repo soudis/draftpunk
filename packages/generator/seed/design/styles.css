@@ -48,6 +48,43 @@ img {
 .skip-link:focus {
   top: 0.5rem;
 }
+/* A menu entry with sub-entries. On a phone, and on a screen with no pointer, the sub-entries are a list under it.
+   On a wide screen with a pointer they are a panel under the entry, shown on hover and on keyboard focus. */
+.menu-group {
+  position: relative;
+}
+.submenu {
+  margin-top: 0.5rem;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.25rem;
+  list-style: none;
+}
+@media (min-width: 48rem) and (hover: hover) {
+  .submenu {
+    position: absolute;
+    z-index: 20;
+    top: 100%;
+    left: -0.75rem;
+    min-width: 14rem;
+    margin: 0;
+    padding: 0.75rem;
+    background: var(--color-page);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-4px);
+    transition: opacity 0.15s, transform 0.15s;
+  }
+  .menu-group:hover > .submenu,
+  .menu-group:focus-within > .submenu {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+}
 @media (prefers-reduced-motion: no-preference) {
   /* A soft fade between pages, in browsers that support it. The others just navigate. */
   @view-transition {

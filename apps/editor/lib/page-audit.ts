@@ -2,6 +2,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { readSiteConfig, pageUrl, type PageExpectation } from '@schlor/generator'
 import { decideRoute, getBrowser, PREVIEW_ORIGIN } from './browser'
+import { checkMenu } from './menu-check'
 
 export const VIEWPORTS = {
   desktop: { width: 1280, height: 800 },
@@ -201,6 +202,8 @@ export async function auditPage(
     const audit = (await page.evaluate(AUDIT_SOURCE)) as RawAudit
     const expectation = options.expectations?.find((item) => item.url === urlPath)
     const findings = describeAudit(audit, { errors, missing, hidden: hiddenWords(expectation, audit.text) })
+    // A menu is reached with a pointer on a wide screen; on a phone it sits behind a button.
+    if (viewport === 'desktop') findings.push(...(await checkMenu(page)))
     let screenshot: Buffer | undefined
     if (options.screenshot) {
       const full = options.screenshot === 'full'

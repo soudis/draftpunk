@@ -20,6 +20,7 @@ const SITE_WRITES = new Set([
   'discard_picture',
   'accept_setup',
   'import_pages',
+  'copy_menu',
 ])
 
 export function toolPartName(part: { type: string; toolName?: string }): string | undefined {

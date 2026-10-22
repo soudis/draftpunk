@@ -89,7 +89,7 @@ A short card in an empty chat that says what can be asked, how to change a sente
 _Avoid_: help, tutorial, tour
 
 **Baseline**:
-What every site gets without being asked for: pictures that load lazily and keep their space, fonts served from the site itself, a soft page transition, a sitemap, robots and not-found page, page descriptions, a skip link, and visible keyboard focus. The generator does the mechanical part and the starter design holds the visual part.
+What every site gets without being asked for: pictures that load lazily and keep their space, fonts served from the site itself, a soft page transition, a sitemap, robots and not-found page, page descriptions, a skip link, visible keyboard focus, and a menu whose sub-entries open on hover and keyboard focus (a list on a phone). The generator does the mechanical part and the starter design holds the visual part.
 _Avoid_: boilerplate, defaults, preset
 
 **Reference**:

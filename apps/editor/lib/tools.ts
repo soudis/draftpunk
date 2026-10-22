@@ -15,6 +15,7 @@ import { formatProfile, PROFILE_SOURCE, type RawProfile } from './site-profile'
 import { DATE_SOURCE, formatText, TEXT_SOURCE, type RawText } from './site-text'
 import { collectPaths, siteMap } from './site-map'
 import { importPages, DEFAULT_BATCH, MAX_BATCH } from './import-pages'
+import { buildNav, MENU_SOURCE, resolverFor, writeMenu, type MenuEntry } from './source-menu'
 import { SITE_VIEWPORTS, withSitePage, type FetchPage, type SiteViewport } from './web-render'
 import { replaceOnce } from './edit'
 import { slotDefAt, slotPath, valueAt, withValueAt } from './slot-edit'
@@ -1019,6 +1020,35 @@ export function designTools(root: string, options: ToolOptions = {}): ToolSet {
                 fetchPicture: (url) => fetchPublicBytes(url, options.fetchPage),
               })
               return finish(root, summary)
+            },
+          }),
+          copy_menu: defineTool('copy_menu', {
+            description:
+              'Give this site the menu of a source site, as the person asked: its main entries and their sub-entries in the same order, each pointing at the page of this site that the source page became (see import_pages) or at a page named after it. Source pages that this site has no page for are left out and listed. An entry that leads to another site stays an outbound link. Labels in a second language are taken from the source only when its menu there has the same shape; nothing is translated. Call it after the pages are written or imported. It replaces the menu in design/nav.yml and keeps the footer.',
+            input: z.object({ source: z.string().describe('Required. Address of the source site.') }),
+            execute: async ({ source }) => {
+              const site = readSiteConfig(root)
+              const languages = site.languages.map((language) => language.id)
+              const origin = new URL(/^https?:\/\//i.test(source.trim()) ? source.trim() : `https://${source.trim()}`).origin
+              const menus: Record<string, MenuEntry[]> = {}
+              for (const lang of languages) {
+                const home = lang === languages[0] ? `${origin}/` : `${origin}/${lang}/`
+                try {
+                  menus[lang] = await withSitePage(home, { fetchPage: options.fetchPage }, async (page) => (await page.evaluate(MENU_SOURCE)) as MenuEntry[])
+                } catch (error) {
+                  if (lang === languages[0]) throw error
+                }
+              }
+              if (!menus[languages[0]]?.length) fail(`No menu was found on ${origin}/. Name the pages in design/nav.yml yourself.`)
+              const built = buildNav(menus, { origin, languages, resolve: resolverFor(root) })
+              if (built.menu.length === 0) fail('None of its menu entries has a page on this site yet. Write or import the pages first.')
+              writeMenu(root, built.menu)
+              const lines = built.menu.map((item) => `- ${item.label[languages[0]]} → ${item.href}${item.children ? ` (${item.children.map((child) => child.label[languages[0]]).join(', ')})` : ''}`)
+              const notes = [
+                built.left.length > 0 ? `Left out, no page on this site: ${built.left.slice(0, 20).join('; ')}${built.left.length > 20 ? `; and ${built.left.length - 20} more` : ''}.` : '',
+                built.copied.length > 0 ? `The source has no menu of the same shape in ${built.copied.join(', ')}, so those labels are the ${languages[0]} ones. Write them in that language with edit_design if the person wants.` : '',
+              ].filter(Boolean)
+              return finish(root, [`The menu now follows ${origin}:`, ...lines, ...notes].join('\n'))
             },
           }),
           save_reference: defineTool('save_reference', {

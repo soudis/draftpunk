@@ -16,17 +16,17 @@
       <a class="font-serif text-2xl text-heading" href="{{ prefix }}/">{{ name }}</a>
       <input type="checkbox" id="menu-toggle" class="peer sr-only">
       <label for="menu-toggle" class="cursor-pointer border border-border px-3 py-1 text-sm uppercase tracking-wide md:hidden">{{ labels.menu }}</label>
-      <nav class="hidden w-full flex-col gap-3 text-sm uppercase tracking-wide peer-checked:flex md:flex md:w-auto md:flex-row md:flex-wrap md:items-start md:gap-x-4 md:gap-y-2">
+      <nav aria-label="{{ labels.menu }}" class="hidden w-full flex-col gap-3 text-sm uppercase tracking-wide peer-checked:flex md:flex md:w-auto md:flex-row md:flex-wrap md:items-start md:gap-x-6 md:gap-y-2">
         {% for item in nav %}
           {% if item.children %}
-          <details class="group">
-            <summary class="cursor-pointer list-none hover:text-link"><a href="{{ item.href }}">{{ item.label }}</a></summary>
-            <ul class="mt-2 space-y-1 normal-case tracking-normal">
+          <div class="menu-group">
+            <a class="hover:text-link" href="{{ item.href }}">{{ item.label }}</a>
+            <ul class="submenu normal-case tracking-normal">
               {% for child in item.children %}
               <li><a class="hover:text-link" href="{{ child.href }}">{{ child.label }}</a></li>
               {% endfor %}
             </ul>
-          </details>
+          </div>
           {% else %}
           <a class="hover:text-link" href="{{ item.href }}">{{ item.label }}</a>
           {% endif %}
