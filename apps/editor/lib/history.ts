@@ -19,7 +19,12 @@ const READ_TOOLS = new Set([
 ])
 
 const STUB_OVER = 400
-export const DEFAULT_BUDGET_CHARS = 500_000
+// About 100k tokens: the first real setup came to 3.7 characters a token. A longer history costs a lot on every step and
+// the model reads the middle of it badly, so what the site itself shows (the files, the catalog) replaces it.
+export const DEFAULT_BUDGET_CHARS = 360_000
+
+export const COMPACTED_NOTE =
+  'Note: the tool work of the earlier turns of this chat was dropped to keep it short. What was said is kept. What was done is in the site: read a page, a layout or a file again if you need its text.'
 
 type Part = { type: string; [key: string]: unknown }
 
@@ -121,18 +126,21 @@ function size(messages: ModelMessage[]): number {
 function fitBudget(messages: ModelMessage[], turnStart: number, budgetChars: number, keepReasoning: boolean): ModelMessage[] {
   if (size(messages) <= budgetChars) return messages
   const kept = [...messages]
+  let dropped = false
   let index = 0
   while (index < turnStart && size(kept) > budgetChars) {
     const message = kept[index]
     if (message.role === 'tool') {
       kept.splice(index, 1)
       turnStart -= 1
+      dropped = true
       continue
     }
     if (message.role === 'assistant') {
       let end = index + 1
       while (end < turnStart && kept[end].role === 'tool') end += 1
       const text = parts(message).filter((part) => part.type === 'text' || (keepReasoning && part.type === 'reasoning'))
+      if (end > index + 1 || text.length < parts(message).length) dropped = true
       const replacement = text.some((part) => part.type === 'text') ? [withParts(message, text)] : []
       kept.splice(index, end - index, ...replacement)
       turnStart -= end - index - replacement.length
@@ -141,7 +149,7 @@ function fitBudget(messages: ModelMessage[], turnStart: number, budgetChars: num
     }
     index += 1
   }
-  return kept
+  return dropped ? [{ role: 'user', content: COMPACTED_NOTE }, ...kept] : kept
 }
 
 function hasWords(message: ModelMessage): boolean {

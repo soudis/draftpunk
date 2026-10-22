@@ -2,7 +2,7 @@ import path from 'node:path'
 import { convertToModelMessages, streamText, type UIMessage } from 'ai'
 import { commitAll } from '@/lib/git'
 import { chatErrorText } from '@/lib/api-error'
-import { modelFor } from '@/lib/provider'
+import { modelFor, quietModelFor } from '@/lib/provider'
 import { classifyRequest, planRequest } from '@/lib/routing'
 import { modelSupportsVision } from '@/lib/model-catalog'
 import { needsReasoningPassBack, outputLimit } from '@/lib/thinking'
@@ -57,6 +57,7 @@ export async function POST(request: Request) {
       cacheDir: path.join(path.dirname(chatDatabasePath()), 'web-cache'),
       keepReasoning: needsReasoningPassBack(modelSettings.baseURL) && plan.thinking === 'default',
       maxOutputTokens: outputLimit(modelSettings.baseURL),
+      quietModel: quietModelFor(modelSettings, plan),
       onBadCall: (call) => {
         try {
           recordBadCall(editorDatabase(), { sessionId, turn: userCount, ...call })

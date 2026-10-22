@@ -1,6 +1,7 @@
-import { stepCountIs, type ModelMessage, type ToolSet } from 'ai'
+import { stepCountIs, type LanguageModel, type ModelMessage, type ToolSet } from 'ai'
 import { browserConfigured } from './browser'
 import { pruneHistory } from './history'
+import { isMechanicalStep } from './thinking'
 import type { EditorMode } from './mode'
 import { systemPrompt } from './prompt'
 import { screenshotIds, ScreenshotStore } from './screenshots'
@@ -105,7 +106,7 @@ export type AgentRun = {
   tools: ToolSet
   stopWhen: ReturnType<typeof stepCountIs>
   maxOutputTokens?: number
-  prepareStep: (options: { stepNumber: number; messages: ModelMessage[] }) => { messages: ModelMessage[]; toolChoice?: 'none' }
+  prepareStep: (options: { stepNumber: number; messages: ModelMessage[] }) => { messages: ModelMessage[]; toolChoice?: 'none'; model?: LanguageModel }
   experimental_repairToolCall: (options: { toolCall: ToolCallInput; error: unknown }) => Promise<ToolCallInput | null>
 }
 
@@ -115,7 +116,15 @@ export type BadCallInfo = { toolName: string; reason: string; raw: string }
 export function agentRun(
   mode: EditorMode,
   root: string,
-  options: { vision?: boolean; cacheDir?: string; keepReasoning?: boolean; maxOutputTokens?: number; onBadCall?: (call: BadCallInfo) => void } = {},
+  options: {
+    vision?: boolean
+    cacheDir?: string
+    keepReasoning?: boolean
+    maxOutputTokens?: number
+    onBadCall?: (call: BadCallInfo) => void
+    /** The same model with thinking off, for the steps that only write content. */
+    quietModel?: LanguageModel
+  } = {},
 ): AgentRun {
   const screenshots = new ScreenshotStore()
   return {
@@ -125,6 +134,7 @@ export function agentRun(
     maxOutputTokens: options.maxOutputTokens,
     prepareStep: ({ stepNumber, messages }) => ({
       messages: attachScreenshots(pruneHistory(messages, undefined, { keepReasoning: options.keepReasoning }), screenshots),
+      ...(options.quietModel && isMechanicalStep(messages) ? { model: options.quietModel } : {}),
       ...(stepNumber >= STEP_LIMIT - 1 ? { toolChoice: 'none' as const } : {}),
     }),
     experimental_repairToolCall: async ({ toolCall, error }) => {

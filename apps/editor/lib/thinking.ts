@@ -1,3 +1,4 @@
+import type { ModelMessage } from 'ai'
 import { normalizeModelBase } from './model-catalog'
 
 export type Thinking = 'default' | 'off'
@@ -48,4 +49,31 @@ export function shapeRequestBody<T extends ChatBody>(body: T, context: { baseURL
 export function outputLimit(baseURL: string): number | undefined {
   const base = normalizeModelBase(baseURL)
   return base === normalizeModelBase(DEEPSEEK) || base === normalizeModelBase(ZAI) ? 32_768 : undefined
+}
+
+// Tools that write content or take it over. The step after one of them is mostly the next such call, which needs no
+// chain of thought. The step after a read is left alone: it may be the one that decides a design.
+const MECHANICAL_TOOLS = new Set([
+  'import_pages',
+  'copy_menu',
+  'write_page',
+  'set_slot',
+  'edit_slot',
+  'write_event',
+  'write_place',
+  'delete_page',
+  'delete_event',
+  'delete_place',
+  'set_homepage_news',
+  'save_picture',
+  'fit_picture',
+  'discard_picture',
+])
+
+/** Whether the step that is about to run answers only the results of content-writing tools. */
+export function isMechanicalStep(messages: ModelMessage[]): boolean {
+  const last = messages[messages.length - 1]
+  if (!last || last.role !== 'tool' || !Array.isArray(last.content)) return false
+  const results = (last.content as { type: string; toolName?: string }[]).filter((part) => part.type === 'tool-result')
+  return results.length > 0 && results.every((part) => MECHANICAL_TOOLS.has(String(part.toolName)))
 }

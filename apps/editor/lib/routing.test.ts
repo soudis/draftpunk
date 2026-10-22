@@ -162,3 +162,55 @@ test('with DeepSeek the chain of thought of a tool step goes back with the next 
   const earlier = second.find((message) => message.role === 'assistant' && !message.tool_calls)
   assert.equal(earlier?.reasoning_content, '')
 })
+
+test('a step that only answers content writes runs with thinking off, and a step after a read does not', async () => {
+  const sent: { thinking?: unknown }[] = []
+  const replies = [
+    { role: 'assistant', content: '', reasoning_content: 'Think.', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'set_slot', arguments: '{}' } }] },
+    { role: 'assistant', content: '', tool_calls: [{ id: 'c2', type: 'function', function: { name: 'read_page', arguments: '{}' } }] },
+    { role: 'assistant', content: 'Done.', reasoning_content: 'Think again.' },
+  ]
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+    sent.push(JSON.parse(String(init?.body)))
+    const message = replies[sent.length - 1]
+    return new Response(JSON.stringify({ choices: [{ message, finish_reason: message.tool_calls ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 5 } }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  }) as typeof fetch
+  try {
+    const { generateText, stepCountIs, tool } = await import('ai')
+    const { z } = await import('zod')
+    const { agentRun } = await import('./agent')
+    const { quietModelFor } = await import('./provider')
+    const fs = await import('node:fs')
+    const os = await import('node:os')
+    const path = await import('node:path')
+    const { initSite } = await import('@schlor/generator')
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'schlor-quiet-'))
+    initSite(root)
+    const settings = { baseURL: 'https://api.deepseek.com', apiKey: 'k' }
+    const plan = { task: 'design' as const, model: 'deepseek-flash', thinking: 'default' as const }
+    const run = agentRun('edit', root, { quietModel: quietModelFor(settings, plan) })
+    assert.equal(quietModelFor(settings, { ...plan, thinking: 'off' }), undefined)
+    assert.equal(quietModelFor({ baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai', apiKey: 'k' }, { ...plan, model: 'gemini-3-pro' }), undefined)
+    await generateText({
+      model: modelFor(settings, plan),
+      system: run.system,
+      tools: {
+        set_slot: tool({ description: 'x', inputSchema: z.object({}), execute: async () => 'Set.' }),
+        read_page: tool({ description: 'x', inputSchema: z.object({}), execute: async () => 'page text' }),
+      },
+      prepareStep: run.prepareStep,
+      stopWhen: stepCountIs(5),
+      messages: [{ role: 'user', content: 'Write the pages' }],
+    })
+  } finally {
+    globalThis.fetch = realFetch
+  }
+  assert.equal(sent.length, 3)
+  assert.equal('thinking' in sent[0], false)
+  assert.deepEqual(sent[1].thinking, { type: 'disabled' })
+  assert.equal('thinking' in sent[2], false)
+})

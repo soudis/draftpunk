@@ -166,3 +166,33 @@ test('a failed request leaves no empty reply behind', () => {
   ])
   assert.deepEqual(kept.map((message) => message.parts[0]?.type), ['text', 'text', 'tool-read_page'])
 })
+
+test('a mechanical step is one that only answers content writes', async () => {
+  const { isMechanicalStep } = await import('./thinking')
+  const answer = (...names: string[]): ModelMessage => ({
+    role: 'tool',
+    content: names.map((toolName) => ({ type: 'tool-result' as const, toolCallId: toolName, toolName, output: { type: 'text' as const, value: 'ok' } })),
+  })
+  assert.equal(isMechanicalStep([{ role: 'user', content: 'Go' }]), false)
+  assert.equal(isMechanicalStep([]), false)
+  assert.equal(isMechanicalStep([answer('write_page', 'set_slot', 'import_pages')]), true)
+  assert.equal(isMechanicalStep([answer('write_page', 'read_page')]), false)
+  assert.equal(isMechanicalStep([answer('write_layout')]), false)
+  assert.equal(isMechanicalStep([answer('preview_page')]), false)
+})
+
+test('shortening a long history says so, and a history that fits is not touched', () => {
+  const history = [...steps('1', 6), ...steps('2', 3)]
+  assert.equal(pruneHistory(history, 10_000_000)[0].role, 'user')
+  assert.equal(JSON.stringify(pruneHistory(history, 10_000_000)).includes('tool work of the earlier turns'), false)
+  const short = pruneHistory(history, 6_000)
+  assert.match(String(short[0].content), /tool work of the earlier turns of this chat was dropped/)
+  assert.deepEqual(problems(short), [])
+  // Nothing was dropped from a history that is only text.
+  const talk: ModelMessage[] = [
+    { role: 'user', content: 'a'.repeat(400) },
+    { role: 'assistant', content: [{ type: 'text', text: 'b'.repeat(400) }] },
+    { role: 'user', content: 'c' },
+  ]
+  assert.equal(JSON.stringify(pruneHistory(talk, 100)).includes('tool work'), false)
+})

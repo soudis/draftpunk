@@ -8,7 +8,7 @@ import { commitAll, ensureGit, filesChangedSince, git } from './git'
 import { designContentRefusal, namedPages } from './layout-guard'
 import type { EditorMode } from './mode'
 import { classifyRequest, planRequest, type RequestPlan, type Task } from './routing'
-import { needsReasoningPassBack, outputLimit } from './thinking'
+import { needsReasoningPassBack, outputLimit, thinkingParams } from './thinking'
 import { stepTools } from './usage-log'
 
 export type Check = { name: string; ok: boolean; detail?: string }
@@ -86,6 +86,10 @@ export async function runScenario(
       ...agentRun(scenario.mode ?? 'edit', root, {
         vision: options.vision,
         maxOutputTokens: options.routing ? outputLimit(options.routing.settings.baseURL) : undefined,
+        quietModel:
+          plan && options.routing && plan.thinking === 'default' && Object.keys(thinkingParams(options.routing.settings.baseURL, plan.model, 'off')).length > 0
+            ? options.routing.modelFor({ ...plan, thinking: 'off' })
+            : undefined,
         keepReasoning: Boolean(plan && options.routing && needsReasoningPassBack(options.routing.settings.baseURL) && plan.thinking === 'default'),
       }),
       messages,
