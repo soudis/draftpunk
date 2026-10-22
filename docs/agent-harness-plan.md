@@ -69,7 +69,14 @@ Phase 3 is built:
 - Tool definitions are now about 5.7k tokens and the system prompt about 2.1k, both stable between requests so they are cached.
 - `read_layout` already takes a part. `read_design` takes an offset.
 
-Not built yet: reusable sections shared by several layouts (the starter layouts repeat their markup), and a browser-based check that a slot is visible (Phase 4). The importer package writes the new page format but only knows the old fixed layouts.
+Phase 4 is built (looking at the result):
+- A browser is optional. `BROWSER_URL` points at a Chromium that speaks the DevTools protocol (tested over a local debugging port), or `BROWSER_PATH` runs a local Chrome. Without either, the tools below do not exist and nothing changes. A Chromium container as a sidecar is the intended setup; Chrome only accepts DevTools connections for `localhost` or an IP address as the host name, so use the container's address (not tested against a real container).
+- Pages are served to the browser from the generated draft, and nothing else leaves the machine except Google Fonts.
+- `check_page` lists what is wrong at phone width (375px) and desktop width (1280px): text with too little contrast (computed from the real colours behind it), a page that scrolls sideways and what reaches out, pictures that did not load, slot words that are in the page but not visible (hidden by CSS), an invisible page, a missing h1, script errors.
+- After every design write (`write_layout`, `write_design`, `edit_layout`, `edit_design`, `replace_layout`) the tool result also carries what the browser found on the pages that show the change (the pages of that layout, or the home page and one page per layout for a shared change). A problem is reported once per request. A browser that fails never fails the change.
+- `preview_page` gives a vision model a screenshot (JPEG, whole page to 2400px). It reaches the model as a user message for the next step only, then is gone, so it never stays in the history or the stored chat. Whether a model reads pictures comes from a list of documented models, or `LLM_VISION=1` or `0`.
+
+Not built yet: reusable sections shared by several layouts (the starter layouts repeat their markup). The importer package writes the new page format but only knows the old fixed layouts.
 
 ## 3. Phases
 

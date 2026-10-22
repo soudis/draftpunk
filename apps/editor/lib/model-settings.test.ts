@@ -21,7 +21,9 @@ test('the environment fills gaps, and a stored token wins', () => {
     baseURL: 'https://env.example/v1',
     model: 'env-model',
     apiKey: 'env-key',
+    vision: false,
   })
+  assert.equal(resolveModelSettings(empty, { ...env, LLM_VISION: '1' }).vision, true)
   assert.equal(resolveModelSettings(empty, {}).baseURL, DEFAULT_MODEL_BASE)
   assert.equal(resolveModelSettings(empty, {}).model, DEFAULT_MODEL_NAME)
   const stored = { baseURL: 'https://api.example/v1', model: 'mine', apiKey: 'file-key' }

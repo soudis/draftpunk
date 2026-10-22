@@ -499,7 +499,7 @@ export function pageOutputFile(root: string, outDir: string, slug: string, lang:
   return path.join(outDir, url.endsWith('/') ? `${url}index.html` : url)
 }
 
-function pageUrl(slug: string, lang: Lang, site: SiteConfig): string {
+export function pageUrl(slug: string, lang: Lang, site: SiteConfig): string {
   if (slug === 'home') return routePath('/', lang, site)
   return routePath(`/${slug}/`, lang, site)
 }

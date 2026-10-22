@@ -5,13 +5,17 @@ import { z } from 'zod'
 import { searchContent } from './content-search'
 import { guardDesignWrite } from './layout-guard'
 import type { EditorMode } from './mode'
+import { browserConfigured } from './browser'
 import { replaceOnce } from './edit'
 import { slotDefAt, slotPath, valueAt, withValueAt } from './slot-edit'
+import { auditPage, pagePath, type ViewportName } from './page-audit'
 import { documentOpacityRefusal } from './page-opacity'
 import { suggestPicture } from './picture-vision'
 import { detectPicture, discardPicture, fitPicture, readPicture, searchPictures, stemFromFilename, storePicture } from './pictures'
 import { fetchPublicBytes, readWebsite } from './read-website'
+import { screenshotMarker, ScreenshotStore } from './screenshots'
 import { defineTool, fail } from './tool-kit'
+import { createVerifier, verifyDesign, type Verifier } from './verify'
 import {
   assertSlug,
   applyProposal,
@@ -39,6 +43,7 @@ import {
   readYaml,
   readSiteConfig,
   recordProposal,
+  slotExpectations,
   removeLayoutFolder,
   replaceLayout,
   slotReferences,
@@ -74,6 +79,13 @@ function finish(root: string, summary: string, options: { design?: boolean } = {
   const lost = lostContent(root)
   if (lost.length === 0) return summary
   return `${summary}\nThese words are no longer shown, so the layout dropped or hid them: ${lost.join('; ')}. Show every slot on its page.`
+}
+
+/** A design change: build, report dropped words, then look at the pages in a browser when one is set up. */
+async function finishDesign(root: string, summary: string, verifier: Verifier, layout?: string): Promise<string> {
+  const built = finish(root, summary, { design: true })
+  const seen = await verifyDesign(root, verifier, layout)
+  return seen ? `${built}\n${seen}` : built
 }
 
 function removePage(root: string, slug: string): string {
@@ -570,7 +582,7 @@ function layoutReport(root: string, name: string, warnings: string[]): string[] 
 type LayoutWrite = { name: string; purpose: string; slots: unknown; template: string; style?: string }
 
 // Check a layout against the guard, write it, and say what else the change affects. A failed build puts the old layout back.
-function saveLayout(root: string, input: LayoutWrite): string {
+async function saveLayout(root: string, input: LayoutWrite, verifier: Verifier): Promise<string> {
   const designDir = path.join(root, 'design')
   for (const [rel, content] of [
     [`layouts/${input.name}/template.njk`, input.template],
@@ -588,7 +600,7 @@ function saveLayout(root: string, input: LayoutWrite): string {
   try {
     const notes = layoutReport(root, input.name, warnings)
     const summary = `${before ? 'Updated' : 'Wrote'} layout ${input.name}.${notes.length > 0 ? `\n${notes.join('\n')}` : ''}`
-    return finish(root, `${summary}\n${briefLine('styles.css')}`.trimEnd(), { design: true })
+    return await finishDesign(root, `${summary}\n${briefLine('styles.css')}`.trimEnd(), verifier, input.name)
   } catch (error) {
     restoreLayout(designDir, input.name, before)
     throw error
@@ -596,7 +608,7 @@ function saveLayout(root: string, input: LayoutWrite): string {
 }
 
 // Check a design file against the guard and write it. A failed build puts the old file back.
-function saveDesignFile(root: string, rel: string, content: string): string {
+async function saveDesignFile(root: string, rel: string, content: string, verifier: Verifier): Promise<string> {
   const target = rel.trim().replaceAll('\\', '/')
   if (!target) fail('path is required, such as styles.css. Nothing was written.')
   const layoutFile = /^layouts\/([a-z0-9-]+)\/(layout\.yml|template\.njk|style\.css)$/.exec(target)
@@ -616,7 +628,7 @@ function saveDesignFile(root: string, rel: string, content: string): string {
   const original = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''
   fs.writeFileSync(file, content)
   try {
-    return finish(root, `Updated design/${target}. Every page was regenerated. ${briefLine(target)}`.trim(), { design: true })
+    return await finishDesign(root, `Updated design/${target}. Every page was regenerated. ${briefLine(target)}`.trim(), verifier, layoutFile?.[1])
   } catch (error) {
     if (original) fs.writeFileSync(file, original)
     else fs.rmSync(file, { force: true })
@@ -624,7 +636,11 @@ function saveDesignFile(root: string, rel: string, content: string): string {
   }
 }
 
-export function designTools(root: string): ToolSet {
+export type ToolOptions = { vision?: boolean; screenshots?: ScreenshotStore; verifier?: Verifier }
+
+export function designTools(root: string, options: ToolOptions = {}): ToolSet {
+  const verifier = options.verifier ?? createVerifier()
+  const screenshots = options.screenshots ?? new ScreenshotStore()
   return {
     list_design: defineTool('list_design', {
       description: 'List the design files. Layouts are listed by list_layouts.',
@@ -662,7 +678,7 @@ export function designTools(root: string): ToolSet {
         template: z.string().describe('Required. The full template.njk.'),
         style: z.string().optional().describe('Optional. The full style.css for this layout. Omit to keep the current one.'),
       }),
-      execute: (input) => saveLayout(root, input),
+      execute: (input) => saveLayout(root, input, verifier),
     }),
     fork_layout: defineTool('fork_layout', {
       description: 'Copy a layout under a new name, with its slots, template, and style. Then change the copy with write_layout. Use it when a page needs something close to an existing layout.',
@@ -692,7 +708,7 @@ export function designTools(root: string): ToolSet {
         from: z.string().describe('Required. Layout to remove.'),
         to: z.string().describe('Required. Layout that stays.'),
       }),
-      execute: ({ from, to }) => {
+      execute: async ({ from, to }) => {
         const updated = replaceLayout(root, from, to)
         const problems = updated.flatMap((slug) => {
           const page = readPage(root, slug)
@@ -700,7 +716,7 @@ export function designTools(root: string): ToolSet {
           return found.length > 0 ? [`${slug}: ${found.join('; ')}`] : []
         })
         const note = problems.length > 0 ? `\nThese pages do not fit ${to} yet: ${problems.join(' | ')}. Fix them with write_page.` : ''
-        return finish(root, `Moved ${updated.join(', ') || 'no pages'} from ${from} to ${to}.${note}`, { design: true })
+        return await finishDesign(root, `Moved ${updated.join(', ') || 'no pages'} from ${from} to ${to}.${note}`, verifier, to)
       },
     }),
     read_design: defineTool('read_design', {
@@ -719,7 +735,7 @@ export function designTools(root: string): ToolSet {
         path: z.string().describe('Required. Path relative to design/, such as styles.css.'),
         content: z.string().min(1).describe('Required. The full new content of the file.'),
       }),
-      execute: ({ path: rel, content }) => saveDesignFile(root, rel, content),
+      execute: ({ path: rel, content }) => saveDesignFile(root, rel, content, verifier),
     }),
     edit_layout: defineTool('edit_layout', {
       description:
@@ -731,7 +747,7 @@ export function designTools(root: string): ToolSet {
         replace: z.string().describe('Required. The new text. May be empty to delete the found text.'),
         all: z.boolean().optional().describe('Optional. Replace every match instead of requiring one.'),
       }),
-      execute: ({ name, part, find, replace, all }) => {
+      execute: async ({ name, part, find, replace, all }) => {
         const designDir = path.join(root, 'design')
         if (!layoutExists(designDir, name)) fail(`Unknown layout ${name}. Use list_layouts.`)
         const files = readLayoutFiles(designDir, name)
@@ -740,13 +756,17 @@ export function designTools(root: string): ToolSet {
         const { text, count } = replaceOnce(source, find, replace, `layouts/${name}/${file}`, all)
         const current = parseLayoutFile(files.layout)
         const next = part === 'layout' ? parseLayoutFile(text) : current
-        const saved = saveLayout(root, {
-          name,
-          purpose: next.purpose,
-          slots: next.slots,
-          template: part === 'template' ? text : files.template,
-          style: part === 'style' ? text : files.style,
-        })
+        const saved = await saveLayout(
+          root,
+          {
+            name,
+            purpose: next.purpose,
+            slots: next.slots,
+            template: part === 'template' ? text : files.template,
+            style: part === 'style' ? text : files.style,
+          },
+          verifier,
+        )
         return `Replaced ${count === 1 ? 'one match' : `${count} matches`} in layouts/${name}/${file}. ${saved}`
       },
     }),
@@ -759,12 +779,56 @@ export function designTools(root: string): ToolSet {
         replace: z.string().describe('Required. The new text. May be empty to delete the found text.'),
         all: z.boolean().optional().describe('Optional. Replace every match instead of requiring one.'),
       }),
-      execute: ({ path: rel, find, replace, all }) => {
+      execute: async ({ path: rel, find, replace, all }) => {
         const target = rel.trim().replaceAll('\\', '/')
         const { text, count } = replaceOnce(readDesignFile(root, target), find, replace, `design/${target}`, all)
-        return `Replaced ${count === 1 ? 'one match' : `${count} matches`} in design/${target}. ${saveDesignFile(root, target, text)}`
+        return `Replaced ${count === 1 ? 'one match' : `${count} matches`} in design/${target}. ${await saveDesignFile(root, target, text, verifier)}`
       },
     }),
+    ...(browserConfigured()
+      ? {
+          check_page: defineTool('check_page', {
+            description:
+              'Open a page of the draft in a browser and list what is wrong with how it looks: text that is hard to read, a page that scrolls sideways, pictures that did not load, words that are not visible, an invisible page, script errors. Checks phone width (375px) and desktop width (1280px) unless you choose one. Call it for a page you changed before you finish. page is a slug such as home, or an address such as /kalender/.',
+            input: z.object({
+              page: z.string().describe('Required. A page slug such as home, or an address such as /kalender/.'),
+              lang: z.string().optional().describe('Optional. Language id. Default is the first language.'),
+              viewport: z.enum(['mobile', 'desktop', 'both']).optional().describe('Optional. Default both.'),
+            }),
+            execute: async ({ page, lang, viewport }) => {
+              const urlPath = pagePath(root, page, lang)
+              const views: ViewportName[] = viewport === 'mobile' ? ['mobile'] : viewport === 'desktop' ? ['desktop'] : ['mobile', 'desktop']
+              const expectations = slotExpectations(root)
+              const audits = await Promise.all(views.map((view) => auditPage(root, urlPath, view, { expectations })))
+              const lines = audits.flatMap((audit) => audit.findings.map((finding) => `- ${audit.viewport}: ${finding}`))
+              return lines.length === 0 ? `No problems found on ${urlPath} at ${views.join(' and ')} width.` : `Problems on ${urlPath}:\n${lines.join('\n')}`
+            },
+          }),
+        }
+      : {}),
+    ...(browserConfigured() && options.vision
+      ? {
+          preview_page: defineTool('preview_page', {
+            description:
+              'Look at a page of the draft: you get a picture of it, taken in a browser. Use it to judge how a page looks, such as layout, spacing and balance, after a design change or when asked to match a reference. The picture is shown to you once, in the next step, then dropped, so say what you see. page is a slug such as home, or an address such as /kalender/.',
+            input: z.object({
+              page: z.string().describe('Required. A page slug such as home, or an address such as /kalender/.'),
+              lang: z.string().optional().describe('Optional. Language id. Default is the first language.'),
+              viewport: z.enum(['mobile', 'desktop']).optional().describe('Optional. Default desktop.'),
+              full: z.boolean().optional().describe('Optional. The whole page, to 2400px tall, instead of the first screen.'),
+            }),
+            execute: async ({ page, lang, viewport, full }) => {
+              const urlPath = pagePath(root, page, lang)
+              const view: ViewportName = viewport ?? 'desktop'
+              const audit = await auditPage(root, urlPath, view, { screenshot: full ? 'full' : 'viewport', expectations: slotExpectations(root) })
+              if (!audit.screenshot) fail('The browser did not return a picture.')
+              const id = screenshots.add(audit.screenshot)
+              const problems = audit.findings.length > 0 ? ` Problems: ${audit.findings.join(' ')}` : ''
+              return `Picture of ${urlPath} at ${view} width${full ? ', whole page' : ''}. ${screenshotMarker(id)}${problems}`
+            },
+          }),
+        }
+      : {}),
     read_website: defineTool('read_website', {
       description:
         'Read one public page. Returns its HTML with scripts and style blocks removed, absolute addresses, one address per picture, mailto links for protected addresses, and a short colors-and-fonts note. A long page is cut and says so. Call it again for each further page.',
@@ -812,7 +876,7 @@ export function setupTools(root: string): ToolSet {
   }
 }
 
-export function toolsFor(mode: EditorMode, root: string): ToolSet {
-  const edit = { ...contentTools(root), ...designTools(root) }
+export function toolsFor(mode: EditorMode, root: string, options: ToolOptions = {}): ToolSet {
+  const edit = { ...contentTools(root), ...designTools(root, options) }
   return mode === 'setup' ? { ...edit, ...setupTools(root) } : edit
 }

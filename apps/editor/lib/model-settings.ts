@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { modelSupportsVision } from './model-catalog'
 import { chatDatabasePath } from './site'
 
 export const DEFAULT_MODEL_BASE = 'https://api.openai.com/v1'
@@ -15,12 +16,15 @@ export type ResolvedModelSettings = {
   baseURL: string
   model: string
   apiKey: string
+  /** The model reads pictures, so it may be shown a screenshot. */
+  vision: boolean
 }
 
 export type ModelEnv = {
   LLM_BASE_URL?: string
   LLM_MODEL?: string
   LLM_API_KEY?: string
+  LLM_VISION?: string
 }
 
 export function modelSettingsPath(): string {
@@ -51,12 +55,16 @@ export function resolveModelSettings(
     LLM_BASE_URL: process.env.LLM_BASE_URL,
     LLM_MODEL: process.env.LLM_MODEL,
     LLM_API_KEY: process.env.LLM_API_KEY,
+    LLM_VISION: process.env.LLM_VISION,
   },
 ): ResolvedModelSettings {
+  const baseURL = stored.baseURL.trim() || env.LLM_BASE_URL?.trim() || DEFAULT_MODEL_BASE
+  const model = stored.model.trim() || env.LLM_MODEL?.trim() || DEFAULT_MODEL_NAME
   return {
-    baseURL: stored.baseURL.trim() || env.LLM_BASE_URL?.trim() || DEFAULT_MODEL_BASE,
-    model: stored.model.trim() || env.LLM_MODEL?.trim() || DEFAULT_MODEL_NAME,
+    baseURL,
+    model,
     apiKey: stored.apiKey.trim() || env.LLM_API_KEY?.trim() || '',
+    vision: modelSupportsVision(baseURL, model, env.LLM_VISION),
   }
 }
 

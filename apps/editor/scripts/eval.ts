@@ -1,6 +1,7 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { formatEval, runScenario, type EvalResult } from '../lib/eval'
 import { scenarios } from '../evals/scenarios'
+import { modelSupportsVision } from '../lib/model-catalog'
 
 // pnpm --filter @schlor/editor eval -- [--scenario id|all] [--network] [--json]
 //   [--base-url URL] [--model NAME] [--price 0.15,0.003,0.6]   (USD per million tokens: input, cached input, output)
@@ -33,7 +34,7 @@ async function main() {
   const results: EvalResult[] = []
   for (const scenario of chosen) {
     console.error(`running ${scenario.id}…`)
-    results.push(await runScenario(provider.chatModel(modelName), scenario, { modelName, prices }))
+    results.push(await runScenario(provider.chatModel(modelName), scenario, { modelName, prices, vision: modelSupportsVision(baseURL, modelName, process.env.LLM_VISION) }))
   }
   console.log(flag('json') ? JSON.stringify(results, null, 2) : formatEval(results))
   process.exit(results.some((result) => result.checks.some((check) => !check.ok)) ? 1 : 0)

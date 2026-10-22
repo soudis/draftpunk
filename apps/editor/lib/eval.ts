@@ -48,7 +48,7 @@ const AUTHOR = { name: 'eval', email: 'eval@schlor.org' }
 export async function runScenario(
   model: LanguageModel,
   scenario: Scenario,
-  options: { modelName: string; root?: string; prices?: Prices } = { modelName: 'model' },
+  options: { modelName: string; root?: string; prices?: Prices; vision?: boolean } = { modelName: 'model' },
 ): Promise<EvalResult> {
   const root = options.root ?? fs.mkdtempSync(path.join(os.tmpdir(), `schlor-eval-${scenario.id}-`))
   initSite(root)
@@ -67,7 +67,7 @@ export async function runScenario(
   let finalText = ''
   for (const turn of scenario.turns) {
     messages.push({ role: 'user', content: turn })
-    const result = await generateText({ model, ...agentRun(scenario.mode ?? 'edit', root), messages })
+    const result = await generateText({ model, ...agentRun(scenario.mode ?? 'edit', root, { vision: options.vision }), messages })
     for (const step of result.steps) {
       steps += 1
       input += step.usage.inputTokens ?? 0

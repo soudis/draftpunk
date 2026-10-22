@@ -45,12 +45,20 @@ const SETUP_RULES = `You are in setup: the first conversation that decides a new
 - Keep the event, place, calendar, and archive layouts.
 - The first language has no address prefix. A language marked optional does not block publish.`
 
-export function systemPrompt(mode: EditorMode, root: string, now: Date = new Date()): string {
+const BROWSER_RULES = `## Looking at the result
+- After you change a layout or the styles, the tool result says what a browser found wrong on the pages: text that is hard to read, a page that scrolls sideways, pictures that did not load, words that are not visible. Fix every problem before you finish. Call check_page for a page you changed when you want to be sure of the result.`
+
+const VISION_RULES = `- Call preview_page to look at a page when the question is how it looks: after a redesign, or when the person wants it to match another site. You see the picture once, in the next step, so say what you see, then act on it.`
+
+export type PromptFeatures = { browser?: boolean; vision?: boolean }
+
+export function systemPrompt(mode: EditorMode, root: string, now: Date = new Date(), features: PromptFeatures = {}): string {
   const brief = fs.readFileSync(path.join(root, 'design', 'brief.md'), 'utf8')
   const catalog = formatCatalog(layoutCatalog(path.join(root, 'design'), pagesByLayout(root)))
   const site = readSiteConfig(root)
   const languages = site.languages.map((language) => `${language.id}${language.optional ? ' (optional)' : ''}`).join(', ')
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: site.timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now)
-  const rules = mode === 'setup' ? `${EDIT_RULES}\n\n${SETUP_RULES}` : EDIT_RULES
+  const looking = features.browser ? `\n\n${BROWSER_RULES}${features.vision ? `\n${VISION_RULES}` : ''}` : ''
+  const rules = mode === 'setup' ? `${EDIT_RULES}${looking}\n\n${SETUP_RULES}` : `${EDIT_RULES}${looking}`
   return `${rules}\n\n# This site\nToday: ${today} (${site.timezone}).\nLanguages, first is the default: ${languages}.\n\nLayouts:\n${catalog}\n\nDesign brief:\n${brief}`
 }

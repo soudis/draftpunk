@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { renderContent } from './content'
-import { pageOutputFile } from './generate'
+import { pageOutputFile, pageUrl } from './generate'
 import { layoutExists, readLayout } from './layouts'
 import { readSiteConfig } from './model'
 import { listPageSlugs, pageHasLanguage, readPage } from './pages'
@@ -13,6 +13,8 @@ function visibleText(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    // A tag inside a line of text adds no space, so "<a>x</a>." reads as "x." the way it does in a browser.
+    .replace(/<\/?(?:a|strong|em|b|i|u|span|code|small|mark|abbr|sub|sup)\b[^>]*>/gi, '')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&(?:#(\d+)|#x([0-9a-f]+)|[a-z]+);/gi, (entity, dec: string | undefined, hex: string | undefined) => {
       if (dec) return String.fromCodePoint(Number(dec))
@@ -23,14 +25,20 @@ function visibleText(html: string): string {
     .trim()
 }
 
-/**
- * Words a person wrote in a slot that the generated page does not show. A layout change that
- * drops a slot, or hides it, shows up here. Reads the pages as generated, so call it after generate.
- */
-export function lostContent(root: string, outDir = path.join(root, 'dist')): string[] {
+export type PageExpectation = {
+  slug: string
+  lang: string
+  /** The address of the generated page. */
+  url: string
+  /** Each text a person wrote in a slot, as the words a reader should see. */
+  texts: { path: string; expected: string }[]
+}
+
+/** What every page must show, from the slot values, in the form it takes on the page. */
+export function slotExpectations(root: string): PageExpectation[] {
   const designDir = path.join(root, 'design')
   const site = readSiteConfig(root)
-  const lost: string[] = []
+  const found: PageExpectation[] = []
   for (const slug of listPageSlugs(root)) {
     const page = readPage(root, slug)
     if (!page || !layoutExists(designDir, page.layout)) continue
@@ -38,16 +46,34 @@ export function lostContent(root: string, outDir = path.join(root, 'dist')): str
     const texts = slotTexts(layout.slots, page.slots)
     for (const language of site.languages) {
       if (!pageHasLanguage(page, language.id)) continue
-      const file = pageOutputFile(root, outDir, slug, language.id)
-      const shown = fs.existsSync(file) ? visibleText(fs.readFileSync(file, 'utf8')) : ''
-      const missing = texts
-        .filter((item) => item.lang === undefined || item.lang === language.id)
-        .filter((item) => {
-          const expected = visibleText(isMarkdownPath(item.path, layout.slots) ? renderContent(item.text) : escapeText(item.text))
-          return expected.length > 0 && !shown.includes(expected)
-        })
-      if (missing.length > 0) lost.push(`${slug} (${language.id}): ${missing.map((item) => item.path.replace(/\.[a-z]{2}(?:-[a-z0-9]+)*$/, '')).join(', ')}`)
+      found.push({
+        slug,
+        lang: language.id,
+        url: pageUrl(slug, language.id, site),
+        texts: texts
+          .filter((item) => item.lang === undefined || item.lang === language.id)
+          .map((item) => ({
+            path: item.path.replace(/\.[a-z]{2}(?:-[a-z0-9]+)*$/, ''),
+            expected: visibleText(isMarkdownPath(item.path, layout.slots) ? renderContent(item.text) : escapeText(item.text)),
+          }))
+          .filter((item) => item.expected.length > 0),
+      })
     }
+  }
+  return found
+}
+
+/**
+ * Words a person wrote in a slot that the generated page does not show. A layout change that
+ * drops a slot, or hides it, shows up here. Reads the pages as generated, so call it after generate.
+ */
+export function lostContent(root: string, outDir = path.join(root, 'dist')): string[] {
+  const lost: string[] = []
+  for (const page of slotExpectations(root)) {
+    const file = pageOutputFile(root, outDir, page.slug, page.lang)
+    const shown = fs.existsSync(file) ? visibleText(fs.readFileSync(file, 'utf8')) : ''
+    const missing = page.texts.filter((item) => !shown.includes(item.expected))
+    if (missing.length > 0) lost.push(`${page.slug} (${page.lang}): ${missing.map((item) => item.path).join(', ')}`)
   }
   return lost
 }

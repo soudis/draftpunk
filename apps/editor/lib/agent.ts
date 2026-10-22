@@ -1,8 +1,11 @@
 import { stepCountIs, type ModelMessage, type ToolSet } from 'ai'
+import { browserConfigured } from './browser'
 import { pruneHistory } from './history'
 import type { EditorMode } from './mode'
 import { systemPrompt } from './prompt'
+import { screenshotIds, ScreenshotStore } from './screenshots'
 import { toolsFor } from './tools'
+import { createVerifier } from './verify'
 
 export const STEP_LIMIT = 40
 
@@ -37,6 +40,24 @@ export function repairToolInput(toolCall: ToolCallInput): ToolCallInput | null {
   return null
 }
 
+/**
+ * A tool result can only carry text to the model. A picture from preview_page is put in front of it
+ * as a user message for the next step, and is gone from the step after that.
+ */
+export function attachScreenshots(messages: ModelMessage[], store: ScreenshotStore): ModelMessage[] {
+  const last = messages[messages.length - 1]
+  if (!last || last.role !== 'tool') return messages
+  const ids = (last.content as { type: string; toolName?: string; output?: unknown }[])
+    .filter((part) => part.type === 'tool-result' && part.toolName === 'preview_page')
+    .flatMap((part) => screenshotIds(JSON.stringify(part.output ?? '')))
+  const pictures = ids.flatMap((id) => {
+    const found = store.get(id)
+    return found ? [{ type: 'image' as const, image: found.data, mediaType: found.mediaType }] : []
+  })
+  if (pictures.length === 0) return messages
+  return [...messages, { role: 'user', content: [{ type: 'text', text: 'The picture from preview_page:' }, ...pictures] }]
+}
+
 export type AgentRun = {
   system: string
   tools: ToolSet
@@ -46,13 +67,14 @@ export type AgentRun = {
 }
 
 /** The settings the chat route and the eval runner both give to streamText. */
-export function agentRun(mode: EditorMode, root: string): AgentRun {
+export function agentRun(mode: EditorMode, root: string, options: { vision?: boolean } = {}): AgentRun {
+  const screenshots = new ScreenshotStore()
   return {
-    system: systemPrompt(mode, root),
-    tools: toolsFor(mode, root),
+    system: systemPrompt(mode, root, new Date(), { browser: browserConfigured(), vision: options.vision }),
+    tools: toolsFor(mode, root, { vision: options.vision, screenshots, verifier: createVerifier() }),
     stopWhen: stepCountIs(STEP_LIMIT),
     prepareStep: ({ stepNumber, messages }) => ({
-      messages: pruneHistory(messages),
+      messages: attachScreenshots(pruneHistory(messages), screenshots),
       ...(stepNumber >= STEP_LIMIT - 1 ? { toolChoice: 'none' as const } : {}),
     }),
     experimental_repairToolCall: async ({ toolCall, error }) => {

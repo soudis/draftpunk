@@ -53,7 +53,7 @@ export async function POST(request: Request) {
   let step = 0
   const result = streamText({
     model: provider.chatModel(modelSettings.model),
-    ...agentRun(mode, root),
+    ...agentRun(mode, root, { vision: modelSettings.vision }),
     messages: await convertToModelMessages(body.messages),
     abortSignal: request.signal,
     onStepFinish: (finished) => {

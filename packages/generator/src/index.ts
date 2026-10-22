@@ -19,8 +19,9 @@ export function initSite(root: string): void {
 }
 
 export { renderContent, designFilePath, assertSlug, writeYaml, readYaml } from './content'
-export { generate, pageOutputFile, replaceLayout, pageLayoutsOrThrow } from './generate'
-export { lostContent } from './preservation'
+export { generate, pageOutputFile, pageUrl, replaceLayout, pageLayoutsOrThrow } from './generate'
+export { lostContent, slotExpectations } from './preservation'
+export type { PageExpectation } from './preservation'
 export { applyContentCorrection } from './hints'
 export {
   GENERATED_LAYOUTS,

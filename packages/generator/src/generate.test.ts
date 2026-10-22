@@ -13,6 +13,7 @@ import {
   initSite,
   layoutCatalog,
   lostContent,
+  slotExpectations,
   pagesByLayout,
   parseSlotSchema,
   readLayout,
@@ -312,4 +313,12 @@ test('words a layout stops showing are reported after a design change', () => {
   })
   generate(root)
   assert.deepEqual(lostContent(root), ['raum (de): slots.body', 'raum (en): slots.body'])
+})
+
+test('a link or emphasis inside a sentence does not split it', () => {
+  const root = newSite('housing-inline-')
+  writePage(root, { slug: 'k', layout: 'article', title: { de: 'K' }, slots: { body: { de: 'Schreib an **uns**: [info@example.org](mailto:info@example.org).' } } })
+  generate(root)
+  assert.deepEqual(lostContent(root), [])
+  assert.equal(slotExpectations(root).find((page) => page.slug === 'k')?.texts[0].expected, 'Schreib an uns: info@example.org.')
 })

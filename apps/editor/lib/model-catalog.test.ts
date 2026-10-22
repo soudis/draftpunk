@@ -34,3 +34,17 @@ test('model suggestions follow the address and a provider pick keeps a matching 
   assert.equal(byName.Kimi.includes('kimi-k2.5'), false)
   assert.ok(byName.Kimi.includes('kimi-k2.7-code'))
 })
+
+test('a model reads pictures when its provider says so, and LLM_VISION overrides', async () => {
+  const { modelSupportsVision } = await import('./model-catalog')
+  assert.equal(modelSupportsVision('https://api.openai.com/v1', 'gpt-4.1'), true)
+  assert.equal(modelSupportsVision('https://api.anthropic.com/v1/', 'claude-sonnet-5-5'), true)
+  assert.equal(modelSupportsVision('https://generativelanguage.googleapis.com/v1beta/openai', 'gemini-3.8-flash'), true)
+  assert.equal(modelSupportsVision('https://api.deepseek.com', 'deepseek-flash'), true)
+  assert.equal(modelSupportsVision('https://api.deepseek.com', 'deepseek-v4-pro'), false)
+  assert.equal(modelSupportsVision('https://api.z.ai/api/paas/v4', 'glm-4.6v'), true)
+  assert.equal(modelSupportsVision('https://api.z.ai/api/paas/v4', 'glm-5.3-flashx'), false)
+  assert.equal(modelSupportsVision('https://api.moonshot.ai/v1', 'kimi-k3'), false)
+  assert.equal(modelSupportsVision('https://api.moonshot.ai/v1', 'kimi-k3', '1'), true)
+  assert.equal(modelSupportsVision('https://api.openai.com/v1', 'gpt-4.1', '0'), false)
+})

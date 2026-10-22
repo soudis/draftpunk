@@ -153,3 +153,20 @@ export function modelAfterProviderPick(currentModel: string, provider: ModelProv
   if (provider.models.includes(trimmed)) return trimmed
   return provider.models[0] ?? trimmed
 }
+
+// Models that read pictures, by what the provider documents. A model that is not listed is treated as text only.
+// LLM_VISION=1 or 0 overrides this for a model the list does not know.
+const VISION: { base: string; model: RegExp }[] = [
+  { base: 'https://api.openai.com/v1', model: /^gpt-(4o|4\.1|5|6)/ },
+  { base: 'https://generativelanguage.googleapis.com/v1beta/openai', model: /^gemini-/ },
+  { base: 'https://api.anthropic.com/v1', model: /^claude-/ },
+  { base: 'https://api.deepseek.com', model: /^deepseek-flash$/ },
+  { base: 'https://api.z.ai/api/paas/v4', model: /v(?:-|$)/ },
+]
+
+export function modelSupportsVision(baseURL: string, model: string, override?: string): boolean {
+  if (override === '1' || override === 'true') return true
+  if (override === '0' || override === 'false') return false
+  const base = normalizeModelBase(baseURL)
+  return VISION.some((entry) => normalizeModelBase(entry.base) === base && entry.model.test(model.trim().toLowerCase()))
+}
