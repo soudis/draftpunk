@@ -34,6 +34,15 @@ export function postLd(input: { headline: string; url: string; date: string; lan
   }
 }
 
+/** The way down to a page, as search engines show it above a result: the home page, its menu parent or the news, and the page. */
+export function breadcrumbLd(trail: { name: string; url: string }[]): Json {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: trail.map((step, index) => ({ '@type': 'ListItem', position: index + 1, name: step.name, item: step.url })),
+  }
+}
+
 /** One Event for each date of an event: a series is several events of one name, which is how search engines list them. */
 export function eventLds(input: {
   name: string

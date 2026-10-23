@@ -1,6 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { imageSize } from 'image-size'
+import { parse as parseYaml } from 'yaml'
+import type { SizePlan } from './sizes'
 import { firstMainImage, jsonLdTag, type Json } from './structured'
 
 const ATTRIBUTE = (name: string) => new RegExp(`\\s${name}\\s*=`, 'i')
@@ -86,11 +88,50 @@ export function pictureIsTransparent(root: string, address: string): boolean {
   return found
 }
 
+/** What the site says about its pictures, from media/pictures.yml: what a picture shows, per language when it matters, and whether it is only decoration. */
+export type PictureNotes = Map<string, { alt?: Record<string, string>; description?: string; decorative?: boolean }>
+
+export function readPictureNotes(root: string): PictureNotes {
+  const notes: PictureNotes = new Map()
+  let entries: unknown
+  try {
+    entries = parseYaml(fs.readFileSync(path.join(root, 'media', 'pictures.yml'), 'utf8'))
+  } catch {
+    return notes
+  }
+  if (!Array.isArray(entries)) return notes
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object' || typeof entry.file !== 'string') continue
+    const alt: Record<string, string> = {}
+    if (entry.alt && typeof entry.alt === 'object') {
+      for (const [lang, text] of Object.entries(entry.alt)) if (typeof text === 'string' && text.trim()) alt[lang] = text.trim()
+    }
+    notes.set(entry.file, {
+      ...(Object.keys(alt).length > 0 ? { alt } : {}),
+      ...(typeof entry.description === 'string' && entry.description.trim() ? { description: entry.description.trim() } : {}),
+      ...(entry.decorative === true ? { decorative: true } : {}),
+    })
+  }
+  return notes
+}
+
+/** The words for a picture's `alt`: its own text for the language, else the start of its description. Nothing for a decoration. */
+export function altFor(notes: PictureNotes, address: string, lang: string): string {
+  const note = notes.get(address.split(/[?#]/)[0].replace(/^\/media\//, ''))
+  if (!note || note.decorative) return ''
+  const own = note.alt?.[lang] ?? ''
+  if (own) return own
+  const text = (note.description ?? '').replace(/\s+/g, ' ').trim()
+  return text.length <= 140 ? text : `${text.slice(0, 140).replace(/\s+\S*$/, '')}…`
+}
+
+export type PictureOptions = { lang?: string; notes?: PictureNotes; sizes?: SizePlan }
+
 /**
  * Pictures that load as the page needs them and keep their space. A picture in the header, and the first
  * one after it, stay eager: they are on the first screen. An attribute the design wrote is left as it is.
  */
-export function enhancePictures(html: string, root: string): string {
+export function enhancePictures(html: string, root: string, options: PictureOptions = {}): string {
   const header = /<header\b[\s\S]*?<\/header>/i.exec(html)
   const headerEnd = header ? header.index + header[0].length : -1
   let afterHeader = 0
@@ -110,6 +151,22 @@ export function enhancePictures(html: string, root: string): string {
     // The starter puts a calm color behind a picture while it loads; behind a logo with see-through parts it would be a box.
     const source = attribute(next, 'src')
     if (!ATTRIBUTE('data-transparent').test(next) && source && pictureIsTransparent(root, source)) add.push('data-transparent')
+    // A picture says what it shows: the text the site keeps for it, when the page has none (or an empty one, as an import leaves it).
+    const words = attribute(next, 'alt')
+    if (options.notes && source && (words === undefined || words.trim() === '') && !/\b(?:role\s*=\s*["']presentation["']|aria-hidden\s*=\s*["']true["'])/i.test(next)) {
+      const found = altFor(options.notes, source, options.lang ?? '')
+      if (found) {
+        if (words === undefined) add.push(`alt="${escapeAttribute(found)}"`)
+        else next = next.replace(/(\salt\s*=\s*)(["'])\s*\2/i, (_whole, before: string) => `${before}"${escapeAttribute(found)}"`)
+      }
+    }
+    // Smaller copies for a screen that needs less, unless the design chose its own.
+    const planned = source && !ATTRIBUTE('srcset').test(next) ? options.sizes?.plan(source, pictureSize(root, source)) : null
+    if (planned) {
+      next = next.replace(/(\ssrc\s*=\s*)(["'])[^"']*\2/i, (_whole, before: string) => `${before}"${planned.src}"`)
+      add.push(`srcset="${planned.srcset}"`)
+      if (!ATTRIBUTE('sizes').test(next)) add.push('sizes="auto, (min-width: 900px) 900px, 100vw"')
+    }
     if (add.length === 0) return next
     next = next.replace(/\s*\/?>$/, (end) => ` ${add.join(' ')}${end.trim() === '/>' ? ' />' : '>'}`)
     return next
@@ -127,6 +184,8 @@ export type PageMeta = {
   /** A post has a day, and is shared as an article. */
   kind?: 'post'
   date?: string
+  /** The day the page's content last changed (YYYY-MM-DD), for the sitemap. */
+  modified?: string
   /** schema.org data for the page. A picture is added to a post or an event when the page has one. */
   structured?: Json[]
 }
@@ -169,10 +228,10 @@ export function enhanceHead(
 ): string {
   const close = /<\/head>/i.exec(html)
   if (!close) return html
-  const head = withAbsoluteAlternates(html.slice(0, close.index), meta, site)
+  const head = withoutRepeatedName(withAbsoluteAlternates(html.slice(0, close.index), meta, site), site.name)
   const tags: string[] = [...extra.preload.filter((link) => !head.includes(link.match(/href="([^"]+)"/)?.[1] ?? '\u0000'))]
   const has = (pattern: RegExp) => pattern.test(head)
-  const description = (meta.description ?? '').replace(/\s+/g, ' ').trim().slice(0, 200)
+  const description = ((meta.description ?? '').trim() || firstParagraph(html)).replace(/\s+/g, ' ').trim().slice(0, 200)
   if (description && !has(/<meta[^>]+name=["']description["']/i)) tags.push(`<meta name="description" content="${escapeAttribute(description)}">`)
   if (!has(/<meta[^>]+property=["']og:title["']/i)) {
     tags.push(`<meta property="og:title" content="${escapeAttribute(meta.title)}">`, `<meta property="og:type" content="${meta.kind === 'post' ? 'article' : 'website'}">`, `<meta property="og:site_name" content="${escapeAttribute(site.name)}">`)
@@ -201,6 +260,28 @@ export function enhanceHead(
   return `${head}  ${tags.join('\n  ')}\n${html.slice(close.index)}`
 }
 
+/** The first real paragraph of a page's main part, for a page whose layout has no slot a description is taken from. */
+function firstParagraph(html: string): string {
+  const main = /<main\b[^>]*>([\s\S]*?)<\/main>/i.exec(html)?.[1] ?? ''
+  for (const paragraph of main.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)) {
+    if (/<img\b/i.test(paragraph[1])) continue
+    const text = describe(paragraph[1])
+    if (text.length >= 40) return text
+  }
+  return ''
+}
+
+/** A title that already says the site's name does not get it again: "Ping Pong Beisl at SchloR · SchloR" is "Ping Pong Beisl at SchloR". */
+function withoutRepeatedName(head: string, name: string): string {
+  if (!name) return head
+  const wanted = name.toLowerCase()
+  return head.replace(/<title>([\s\S]*?)<\/title>/i, (whole, text: string) => {
+    const split = /^([\s\S]*?)\s+[·|–—-]\s+([^·|–—-]*)$/.exec(text.trim())
+    if (!split || split[2].trim().toLowerCase() !== wanted || !split[1].toLowerCase().includes(wanted)) return whole
+    return `<title>${split[1].trim()}</title>`
+  })
+}
+
 /** The first words of what a page says, for its description. A long text is cut at a word. */
 export function describe(html: string): string {
   const text = html
@@ -217,8 +298,8 @@ export function describe(html: string): string {
   return `${text.slice(0, 160).replace(/\s+\S*$/, '')}…`
 }
 
-export function sitemapXml(site: { url: string }, paths: string[]): string {
-  const urls = [...new Set(paths)].sort().map((urlPath) => `  <url><loc>${escapeAttribute(site.url + urlPath)}</loc></url>`)
+export function sitemapXml(site: { url: string }, paths: string[], modified: Record<string, string> = {}): string {
+  const urls = [...new Set(paths)].sort().map((urlPath) => `  <url><loc>${escapeAttribute(site.url + urlPath)}</loc>${modified[urlPath] ? `<lastmod>${modified[urlPath]}</lastmod>` : ''}</url>`)
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`
 }
 

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -30,6 +31,7 @@ import {
   writeLayout,
   writePage,
 } from './index'
+import sharp from 'sharp'
 import { scopeLayoutCss } from './layouts'
 import { hasTransparency } from './baseline'
 import { searchIndexJson, searchText, textLimit } from './search'
@@ -456,9 +458,15 @@ test('sitemap, robots, and a not-found page are made, and the sitemap waits for 
   fs.writeFileSync(path.join(root, 'design', 'site.yml'), `${fs.readFileSync(path.join(root, 'design', 'site.yml'), 'utf8')}url: https://example.org\n`)
   const withUrl = generate(root, path.join(root, 'b'))
   const sitemap = fs.readFileSync(path.join(withUrl.outDir, 'sitemap.xml'), 'utf8')
-  assert.match(sitemap, /<url><loc>https:\/\/example\.org\/<\/loc><\/url>/)
-  assert.match(sitemap, /<url><loc>https:\/\/example\.org\/en\/kontakt\/<\/loc><\/url>/)
+  assert.match(sitemap, /<url><loc>https:\/\/example\.org\/<\/loc><lastmod>\d{4}-\d{2}-\d{2}<\/lastmod><\/url>/)
+  assert.match(sitemap, /<url><loc>https:\/\/example\.org\/en\/kontakt\/<\/loc><lastmod>\d{4}-\d{2}-\d{2}<\/lastmod><\/url>/)
+  // A listing has no day of its own, and the not-found pages are not listed.
+  assert.match(sitemap, /<url><loc>https:\/\/example\.org\/blog\/<\/loc><\/url>/)
   assert.equal(sitemap.includes('404'), false)
+  // Each language answers a missing page in its own words.
+  const english = fs.readFileSync(path.join(withUrl.outDir, 'en', '404.html'), 'utf8')
+  assert.match(english, /<html lang="en"/)
+  assert.match(english, /name="robots" content="noindex/)
   assert.match(fs.readFileSync(path.join(withUrl.outDir, 'robots.txt'), 'utf8'), /Sitemap: https:\/\/example\.org\/sitemap\.xml/)
 })
 
@@ -845,4 +853,84 @@ test('a title with a quote or a tag in it cannot break the data it is written in
   assert.equal((html.match(/<\/script>/g) ?? []).length, (html.match(/<script\b/g) ?? []).length)
   assert.equal((ldOf(html).find((item) => item['@type'] === 'BlogPosting') as { headline: string }).headline, 'Das "Dach" </script><b> & mehr')
   assert.match(fs.readFileSync(path.join(out, 'feed.xml'), 'utf8'), /<title>Das &quot;Dach&quot; &lt;\/script&gt;&lt;b&gt; &amp; mehr<\/title>/)
+})
+
+test('a page tells search engines its way down, says something about itself, and does not say the site name twice', () => {
+  const root = newSite('housing-trail-')
+  fs.writeFileSync(path.join(root, 'design', 'site.yml'), `${fs.readFileSync(path.join(root, 'design', 'site.yml'), 'utf8')}url: https://example.org\n`)
+  fs.writeFileSync(
+    path.join(root, 'design', 'nav.yml'),
+    ['menu:', '  - href: /ueber-uns/', '    label: { de: Über uns, en: About }', '    children:', '      - href: /werkstatt/', '        label: { de: Werkstatt, en: Workshop }'].join('\n'),
+  )
+  const body = 'Hier wird gelötet und gesägt, und alle sind eingeladen mitzumachen, wenn sie Lust haben.'
+  writePage(root, { slug: 'ueber-uns', layout: 'article', title: { de: 'Über uns', en: 'About' }, slots: { body: { de: 'Kurz.', en: 'Short.' } } })
+  writePage(root, { slug: 'werkstatt', layout: 'article', title: { de: 'Werkstatt im Haus', en: 'Workshop' }, slots: { body: { de: body, en: body } } })
+  writePage(root, { slug: 'dach', layout: 'article', date: '2025-03-04', title: { de: 'Neues Dach', en: 'New roof' }, slots: { body: { de: body, en: body } } })
+  const out = generate(root, path.join(root, 'out')).outDir
+  const read = (file: string) => fs.readFileSync(path.join(out, file), 'utf8')
+  const lists = (html: string) =>
+    [...html.matchAll(/<script type="application\/ld\+json">(.*?)<\/script>/g)].flatMap((match) => [JSON.parse(match[1])].flat()).filter((item) => item['@type'] === 'BreadcrumbList')[0]
+  const child = lists(read('werkstatt/index.html'))
+  assert.deepEqual(child.itemListElement.map((step: { name: string }) => step.name), ['Start', 'Über uns', 'Werkstatt im Haus'])
+  assert.equal(child.itemListElement[1].item, 'https://example.org/ueber-uns/')
+  assert.deepEqual(lists(read('en/werkstatt/index.html')).itemListElement.map((step: { item: string }) => step.item), ['https://example.org/en/', 'https://example.org/en/ueber-uns/', 'https://example.org/en/werkstatt/'])
+  assert.deepEqual(lists(read('dach/index.html')).itemListElement.map((step: { name: string }) => step.name), ['Start', 'Aktuelles', 'Neues Dach'])
+  assert.equal(lists(read('index.html')), undefined)
+  // A description comes from the page's own text when its layout names no slot for one, and a listing gets a plain one.
+  assert.match(read('werkstatt/index.html'), /<meta name="description" content="Hier wird gelötet und gesägt/)
+  assert.match(read('kalender/index.html'), /<meta name="description" content="Kalender · Housing project">/)
+  // A title that holds the site's name already does not get it again.
+  writePage(root, { slug: 'fest', layout: 'article', title: { de: 'Fest im Housing project', en: 'Party' }, slots: { body: { de: body, en: body } } })
+  const again = generate(root, path.join(root, 'again')).outDir
+  assert.match(fs.readFileSync(path.join(again, 'fest', 'index.html'), 'utf8'), /<title>Fest im Housing project<\/title>/)
+  assert.match(fs.readFileSync(path.join(again, 'werkstatt', 'index.html'), 'utf8'), /<title>Werkstatt im Haus · Housing project<\/title>/)
+})
+
+test('a large picture is offered in smaller sizes, kept between runs, and says what it shows', async () => {
+  const root = newSite('housing-sizes-')
+  fs.mkdirSync(path.join(root, 'media'), { recursive: true })
+  const noise = (width: number, height: number) => sharp({ create: { width, height, channels: 3, noise: { type: 'gaussian' as const, mean: 128, sigma: 60 } } })
+  fs.writeFileSync(path.join(root, 'media', 'hof.jpg'), await noise(3000, 1500).jpeg({ quality: 90 }).toBuffer())
+  fs.writeFileSync(path.join(root, 'media', 'mitte.jpg'), await noise(1400, 700).jpeg({ quality: 90 }).toBuffer())
+  fs.writeFileSync(path.join(root, 'media', 'klein.png'), await sharp({ create: { width: 200, height: 100, channels: 3, background: '#335' } }).png().toBuffer())
+  fs.writeFileSync(path.join(root, 'media', 'zier.jpg'), await noise(1200, 600).jpeg({ quality: 90 }).toBuffer())
+  fs.writeFileSync(
+    path.join(root, 'media', 'pictures.yml'),
+    ['- file: hof.jpg', '  description: Der Hof im Sommer mit Tischen und Bänken', '  alt:', '    en: The courtyard in summer', '- file: zier.jpg', '  description: Ein Muster', '  decorative: true'].join('\n'),
+  )
+  const body = '![](/media/hof.jpg)\n\n![](/media/mitte.jpg)\n\n![](/media/klein.png)\n\n![](/media/zier.jpg)\n\n![Schon beschrieben](/media/mitte.jpg)'
+  writePage(root, { slug: 'bilder', layout: 'article', title: { de: 'Bilder', en: 'Pictures' }, slots: { body: { de: body, en: body } } })
+  const out = generate(root, path.join(root, 'out')).outDir
+  const html = fs.readFileSync(path.join(out, 'bilder', 'index.html'), 'utf8')
+  const tag = (src: string) => [...html.matchAll(/<img\b[^>]*>/g)].map((match) => match[0]).find((found) => found.includes(src)) as string
+  // A picture much wider than the largest copy loads that copy and offers the others.
+  const big = tag('/media/_sizes/hof-1600-')
+  assert.match(big, /srcset="[^"]*hof-480-[0-9a-f]{8}\.webp 480w, [^"]*hof-960-[0-9a-f]{8}\.webp 960w, [^"]*hof-1600-[0-9a-f]{8}\.webp 1600w"/)
+  assert.match(big, /sizes="auto, \(min-width: 900px\) 900px, 100vw"/)
+  assert.match(big, / width="3000" height="1500"/)
+  // A middle-sized one offers copies and itself.
+  assert.match(tag('mitte-480-'), /srcset="[^"]*mitte-480-[0-9a-f]{8}\.webp 480w, [^"]*mitte-960-[0-9a-f]{8}\.webp 960w, \/media\/mitte\.jpg 1400w"/)
+  assert.match(tag('mitte-480-'), /src="\/media\/mitte\.jpg"/)
+  // A small one is left alone.
+  assert.equal(/<img[^>]*klein\.png[^>]*srcset/.test(html), false)
+  const files = fs.readdirSync(path.join(out, 'media', '_sizes'))
+  const sizeOf = (name: string) => fs.statSync(path.join(out, 'media', '_sizes', name)).size
+  const small = files.find((name) => name.startsWith('hof-480-')) as string
+  assert.ok(sizeOf(small) < fs.statSync(path.join(root, 'media', 'hof.jpg')).size / 10)
+  assert.equal((await sharp(path.join(out, 'media', '_sizes', small)).metadata()).width, 480)
+  // The text a site keeps for a picture fills an empty alt, per language; a decoration and a text the page has stay as they are.
+  assert.match(tag('hof-1600-'), /alt="Der Hof im Sommer mit Tischen und Bänken"/)
+  const english = fs.readFileSync(path.join(out, 'en', 'bilder', 'index.html'), 'utf8')
+  assert.match(english, /alt="The courtyard in summer"/)
+  assert.match(tag('zier'), /alt=""/)
+  assert.match(html, /alt="Schon beschrieben"/)
+  // A second run makes nothing again: the copies are found by the picture's file, time and size.
+  const kept = path.join(os.tmpdir(), 'schlor-sizes', crypto.createHash('sha1').update(path.resolve(root)).digest('hex').slice(0, 10))
+  const stamps = () => fs.readdirSync(kept).map((name) => `${name}:${fs.statSync(path.join(kept, name)).mtimeMs}`).sort()
+  const first = stamps()
+  assert.equal(first.length, files.length)
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  const again = generate(root, path.join(root, 'again')).outDir
+  assert.equal(fs.readdirSync(path.join(again, 'media', '_sizes')).length, files.length)
+  assert.deepEqual(stamps(), first)
 })

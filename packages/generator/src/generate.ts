@@ -33,9 +33,11 @@ import {
   type SiteConfig,
 } from './model'
 import { listPageSlugs, pageHasLanguage, readPage, writePage, type PageFile } from './pages'
-import { describe, enhanceHead, enhancePictures, robotsTxt, sitemapXml, type PageMeta } from './baseline'
+import { describe, enhanceHead, enhancePictures, readPictureNotes, robotsTxt, sitemapXml, type PageMeta } from './baseline'
 import { searchIndexJson, searchText, type SearchEntry } from './search'
-import { atomFeed, eventLds, organizationLd, postLd, websiteLd, type Json } from './structured'
+import { atomFeed, breadcrumbLd, eventLds, organizationLd, postLd, websiteLd, type Json } from './structured'
+import { fingerprintStyles } from './finish'
+import { SizePlan } from './sizes'
 import { fontFaceCss, fontPreloadLinks, readFonts } from './fonts'
 import { resolveSlots } from './slots'
 import { readTokens, tokensCss } from './tokens'
@@ -118,9 +120,13 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
     }
   }
   const seoSite = { ...site, feeds }
+  const modified: Record<string, string> = {}
+  const sizes = new SizePlan(root)
+  const notes = readPictureNotes(root)
   const put = (urlPath: string, html: string, meta: PageMeta) => {
-    writeHtml(outDir, urlPath, html, hints, (shown) => enhanceHead(enhancePictures(shown, root), meta, seoSite, { preload, themeColor }))
+    writeHtml(outDir, urlPath, html, hints, (shown) => enhanceHead(enhancePictures(shown, root, { lang: meta.lang, notes, sizes }), meta, seoSite, { preload, themeColor }))
     if (!meta.noindex) written.push(urlPath)
+    if (meta.modified) modified[urlPath] = meta.modified
   }
   const logo = site.url && site.assets.logo ? `${site.url}${site.assets.logo}` : undefined
   // The search needs the design to have its page; a site made before it has none, and gets neither the page nor the index.
@@ -142,12 +148,14 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
           organizationLd({ name: site.name, url: `${site.url}${url}`, logo }),
         )
       }
+      if (site.url && page.slug !== 'home') structured.push(breadcrumbLd(trailFor(site, menu, lang, page.slug, page.title, Boolean(page.date))))
       if (site.url && page.date) structured.push(postLd({ headline: page.title, url: `${site.url}${url}`, date: page.date, lang, description: description || undefined, publisher: { name: site.name, logo } }))
       put(url, html, {
         title: page.title,
         description,
         lang,
         path: url,
+        ...modifiedOf(root, pageContentFile(page.slug)),
         ...(page.date ? { kind: 'post' as const, date: page.date } : {}),
         ...(structured.length > 0 ? { structured } : {}),
       })
@@ -155,9 +163,9 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
       pageCount += 1
     }
     const blog = routePath('/blog/', lang, site)
-    put(blog, renderArchive(env, lang, site, menu, footer, pages, hints), { title: heading(lang, 'Aktuelles', 'News'), lang, path: blog })
+    put(blog, renderArchive(env, lang, site, menu, footer, pages, hints), { title: heading(lang, 'Aktuelles', 'News'), description: `${heading(lang, 'Aktuelles', 'News')} · ${site.name}`, lang, path: blog })
     const calendar = routePath('/kalender/', lang, site)
-    put(calendar, renderCalendar(env, lang, site, menu, footer, events, places, hints), { title: heading(lang, 'Kalender', 'Calendar'), lang, path: calendar })
+    put(calendar, renderCalendar(env, lang, site, menu, footer, events, places, hints), { title: heading(lang, 'Kalender', 'Calendar'), description: `${heading(lang, 'Kalender', 'Calendar')} · ${site.name}`, lang, path: calendar })
     for (const event of events) {
       const eventPath = eventUrl(event.slug, lang, site)
       const html = renderEvent(env, event, lang, site, fields, menu, footer, places, hints)
@@ -168,6 +176,7 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
         description: eventDescription,
         lang,
         path: eventPath,
+        ...modifiedOf(root, eventContentFile(event.slug)),
         ...(site.url
           ? {
               structured: eventLds({
@@ -185,7 +194,7 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
     }
     if (events.length > 0) {
       const index = routePath('/events/', lang, site)
-      put(index, renderEventIndex(env, lang, site, menu, footer, events, hints), { title: heading(lang, 'Termine', 'Events'), lang, path: index })
+      put(index, renderEventIndex(env, lang, site, menu, footer, events, hints), { title: heading(lang, 'Termine', 'Events'), description: `${heading(lang, 'Termine', 'Events')} · ${site.name}`, lang, path: index })
     }
     if (feeds[lang] && site.url) {
       const labels = readLabels(root, lang)
@@ -213,13 +222,20 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
     }
   }
 
+  // A page that is not there is answered in the language of the address: /404.html, and /en/404.html for the others.
+  for (const language of site.languages.map((entry) => entry.id)) {
+    const labels = readLabels(root, language)
+    const notFoundPath = `${prefixFor(language, site)}/404.html`
+    env.addGlobal('labels', labels)
+    env.addGlobal('search', searchOn ? routePath('/suche/', language, site) : '')
+    writeHtml(outDir, notFoundPath, renderNotFound(env, language, site, menu, footer, hints, notFoundPath), hints, (shown) =>
+      enhanceHead(enhancePictures(shown, root, { lang: language, notes, sizes }), { title: labels.not_found_title ?? '404', lang: language, path: notFoundPath, noindex: true }, { name: site.name }, { preload, themeColor }),
+    )
+  }
   env.addGlobal('labels', readLabels(root, defaultLang))
   env.addGlobal('search', searchOn ? routePath('/suche/', defaultLang, site) : '')
-  writeHtml(outDir, '/404.html', renderNotFound(env, defaultLang, site, menu, footer, hints), hints, (shown) =>
-    enhanceHead(enhancePictures(shown, root), { title: readLabels(root, defaultLang).not_found_title ?? '404', lang: defaultLang, path: '/404.html' }, { name: site.name }, { preload, themeColor }),
-  )
   fs.writeFileSync(path.join(outDir, 'robots.txt'), robotsTxt(site))
-  if (site.url) fs.writeFileSync(path.join(outDir, 'sitemap.xml'), sitemapXml({ url: site.url }, written))
+  if (site.url) fs.writeFileSync(path.join(outDir, 'sitemap.xml'), sitemapXml({ url: site.url }, written, modified))
 
   const icalEvents = events.flatMap((event) =>
     event.dates.flatMap((date, index) => {
@@ -253,6 +269,8 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
     )
   }
 
+  sizes.write(outDir)
+  fingerprintStyles(outDir)
   return { pages: pageCount, events: events.length, outDir }
 }
 
@@ -375,12 +393,13 @@ function withLayoutAttribute(html: string, layout: string): string {
   return html.replace(/<body\b([^>]*)>/i, (_all, attrs: string) => `<body${attrs} data-layout="${layout}">`)
 }
 
-function renderNotFound(env: nunjucks.Environment, lang: Lang, site: SiteConfig, nav: NavItem[], footer: NavItem[], hints: boolean): string {
+function renderNotFound(env: nunjucks.Environment, lang: Lang, site: SiteConfig, nav: NavItem[], footer: NavItem[], hints: boolean, own = '/404.html'): string {
+  void hints
   const has = () => false
   return withLayoutAttribute(
     env.render(
       layoutTemplatePath('notfound'),
-      baseContext(((env.getGlobal('labels') as Record<string, string> | undefined)?.not_found_title) ?? '404', lang, site, nav, footer, () => '/404.html', has, {}),
+      baseContext(((env.getGlobal('labels') as Record<string, string> | undefined)?.not_found_title) ?? '404', lang, site, nav, footer, () => own, has, {}),
     ),
     'notfound',
   )
@@ -654,6 +673,29 @@ function otherLang(lang: string, site: SiteConfig): string {
   const ids = site.languages.map((language) => language.id)
   const index = ids.indexOf(lang)
   return ids[(index + 1) % Math.max(ids.length, 1)] ?? lang
+}
+
+/** The day a content file last changed, as the sitemap tells it. */
+function modifiedOf(root: string, file: string | null): { modified?: string } {
+  if (!file) return {}
+  try {
+    return { modified: fs.statSync(path.join(root, file)).mtime.toISOString().slice(0, 10) }
+  } catch {
+    return {}
+  }
+}
+
+/** The way down to a page: home, its parent in the menu (or the news, for a post), and the page itself. */
+function trailFor(site: SiteConfig, menu: NavItem[], lang: Lang, slug: string, title: string, post: boolean): { name: string; url: string }[] {
+  const defaultLang = site.languages[0]?.id ?? 'de'
+  const whole = (urlPath: string) => `${site.url}${urlPath}`
+  const home = { name: heading(lang, 'Start', 'Home'), url: whole(routePath('/', lang, site)) }
+  const own = { name: title, url: whole(pageUrl(slug, lang, site)) }
+  const target = pageUrl(slug, defaultLang, site)
+  const parent = menu.find((item) => item.children?.some((child) => child.href === target))
+  if (parent) return [home, { name: parent.label[lang] || parent.label[defaultLang] || parent.href, url: whole(routePath(parent.href, lang, site)) }, own]
+  if (post) return [home, { name: heading(lang, 'Aktuelles', 'News'), url: whole(routePath('/blog/', lang, site)) }, own]
+  return [home, own]
 }
 
 function heading(lang: string, german: string, english: string): string {
