@@ -92,6 +92,8 @@ export async function POST(request: Request) {
   })
   return result.toUIMessageStreamResponse({
     originalMessages: body.messages,
+    // Without an id of its own the reply gets one in the browser and none here, so Undo could not find its commit.
+    generateMessageId: () => crypto.randomUUID(),
     // nginx-proxy drops the response after 60s without a byte. A model step can stay quiet longer than that.
     keepAliveMs: 15_000,
     onError: (error) => {
