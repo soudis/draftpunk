@@ -82,10 +82,13 @@ export function revisionChanges(root: string, from: string, to: string): Revisio
   return parseNameStatus(git(root, ['diff', '--name-status', '--no-renames', from, to]))
     .filter((entry) => !ignored(entry.file))
     .map((entry) => {
-      const source = entry.file.startsWith('media/') && entry.file !== 'media/pictures.yml' ? '' : sourceAt(root, entry.status === 'D' ? from : to, entry.file)
+      // Only a page, an event or a place is named by what it says; reading the others would be a git call each.
+      const source = NAMED_BY_SOURCE.some((pattern) => pattern.test(entry.file)) ? sourceAt(root, entry.status === 'D' ? from : to, entry.file) : ''
       return { ...entry, sentence: describeDraftChange(entry.file, entry.status, source, languages) }
     })
 }
+
+const NAMED_BY_SOURCE = [PAGE, EVENT, PLACE]
 
 function sourceAt(root: string, revision: string, file: string): string {
   try {

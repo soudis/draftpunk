@@ -15,6 +15,8 @@ import { uiText, type EditorLanguage } from '@/lib/ui-text'
 import { useEditorLanguage } from './language'
 import { SetupStart } from './setup-start'
 import { TipsCard } from './tips'
+import { ContentBrowser, ContentEditor, type OpenTarget } from './content'
+import { CommitView, HistoryList } from './history'
 import { PictureDesk } from './pictures'
 import { SettingsDrawer } from './settings'
 import { TopBar } from './topbar'
@@ -95,6 +97,13 @@ export function ChatPanel({
   const [shownPath, setShownPath] = useState('/preview/')
   const [device, setDevice] = useState<PreviewDevice>('desktop')
   const [tab, setTab] = useState<'chat' | 'preview'>('chat')
+  // The three parts of the editor. The chat and an open file stay mounted while another part shows, so a running
+  // reply and unsaved edits are not lost by switching.
+  const [view, setView] = useState<'chat' | 'content' | 'history'>('chat')
+  const [openTarget, setOpenTarget] = useState<OpenTarget | null>(null)
+  const [openRevision, setOpenRevision] = useState<string | null>(null)
+  const [contentKey, setContentKey] = useState(0)
+  const contentDirty = useRef(false)
   const [previewNews, setPreviewNews] = useState(false)
   const [changeCount, setChangeCount] = useState<number | null>(null)
   const fillDraftRef = useRef<(text: string) => void>(() => {})
@@ -278,6 +287,26 @@ export function ChatPanel({
     setSetupActive(false)
     selectMode('edit')
     reloadPreview()
+  }
+
+  function openContent(target: OpenTarget) {
+    if (openTarget && (openTarget.file !== target.file || openTarget.kind !== target.kind) && contentDirty.current && !window.confirm(t('content.discard'))) return
+    contentDirty.current = false
+    setOpenTarget(target)
+    setTab('preview')
+  }
+
+  function closeContent() {
+    if (contentDirty.current && !window.confirm(t('content.discard'))) return
+    contentDirty.current = false
+    setOpenTarget(null)
+  }
+
+  /** The draft changed under the lists and the open file: read them again. */
+  function draftChanged() {
+    setContentKey((key) => key + 1)
+    refreshUndo()
+    refreshPages()
   }
 
   function reloadPreview() {
@@ -465,6 +494,7 @@ export function ChatPanel({
     }
     setRevertOpen(false)
     setUndoIds([])
+    setContentKey((key) => key + 1)
     setNotice({ text: uiText(language, 'notice.reverted'), bad: false })
     reloadPreview()
   }
@@ -485,6 +515,7 @@ export function ChatPanel({
       }
       setNotice({ text: uiText(language, 'chat.undone'), bad: false })
       refreshUndo()
+      setContentKey((key) => key + 1)
       reloadPreview()
     } finally {
       setUndoing(false)
@@ -493,6 +524,7 @@ export function ChatPanel({
 
   const t = (key: Parameters<typeof uiText>[1], values?: Record<string, string | number>) => uiText(language, key, values)
   const shown = pageForPath(pages, shownPath)
+  const pane = view === 'content' && openTarget ? 'content' : view === 'history' && openRevision ? 'history' : 'preview'
 
   return (
     <>
@@ -511,6 +543,14 @@ export function ChatPanel({
     />
     <div className="shell" ref={shellRef} data-tab={tab}>
       <section className="chat">
+        <nav className="views segmented" aria-label={t('views.label')}>
+          {(['chat', 'content', 'history'] as const).map((name) => (
+            <button key={name} type="button" aria-pressed={view === name} onClick={() => setView(name)}>
+              {t(`views.${name}`)}
+            </button>
+          ))}
+        </nav>
+        <div className="chat-view" hidden={view !== 'chat'}>
         {current && (
           <div className="chat-header">
             {confirmDelete ? (
@@ -566,6 +606,7 @@ export function ChatPanel({
             onFinished={() => {
               refreshUndo()
               refreshChanges()
+              setContentKey((key) => key + 1)
               if (setupActive) refreshSetup()
               void fetch('/api/sessions')
                 .then((response) => response.json())
@@ -589,6 +630,19 @@ export function ChatPanel({
             onUndo={(messageId) => void undoReply(messageId)}
           />
         )}
+        </div>
+        {view === 'content' && <ContentBrowser language={language} selected={openTarget} reloadKey={contentKey} onOpen={openContent} />}
+        {view === 'history' && (
+          <HistoryList
+            language={language}
+            selected={openRevision}
+            reloadKey={contentKey}
+            onSelect={(revision) => {
+              setOpenRevision(revision)
+              setTab('preview')
+            }}
+          />
+        )}
       </section>
       <div
         className="splitter"
@@ -602,6 +656,7 @@ export function ChatPanel({
         onKeyDown={nudgeChatWidth}
       />
       <section className="preview">
+        <div className="preview-view" hidden={pane !== 'preview'}>
         <div className="preview-bar">
           <label className="edit-mode">
             <input
@@ -653,11 +708,43 @@ export function ChatPanel({
           />
         </div>
         {correctError ? <p className="correct-note">{correctError}</p> : null}
+        </div>
+        {openTarget && (
+          <div className="work-pane" hidden={pane !== 'content'}>
+            <ContentEditor
+              language={language}
+              target={openTarget}
+              refreshKey={contentKey}
+              onDirty={(dirty) => {
+                contentDirty.current = dirty
+              }}
+              onSaved={() => {
+                reloadPreview()
+                draftChanged()
+              }}
+              onClose={closeContent}
+            />
+          </div>
+        )}
+        {openRevision && (
+          <div className="work-pane" hidden={pane !== 'history'}>
+            <CommitView
+              language={language}
+              revision={openRevision}
+              reloadKey={contentKey}
+              onChanged={() => {
+                reloadPreview()
+                draftChanged()
+              }}
+              onClose={() => setOpenRevision(null)}
+            />
+          </div>
+        )}
       </section>
     </div>
     <nav className="tabs" aria-label={t('tabs.label')}>
       <button type="button" aria-pressed={tab === 'chat'} onClick={() => setTab('chat')}>
-        {t('tabs.chat')}
+        {t(`views.${view}`)}
       </button>
       <button
         type="button"

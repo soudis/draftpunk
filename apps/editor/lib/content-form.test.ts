@@ -162,3 +162,19 @@ test('wall clock times follow the site time zone, with the summer shift', () => 
   assert.equal(fromWall('2026-01-04T17:00', 'Europe/Vienna'), '2026-01-04T16:00:00.000Z')
   assert.equal(fromWall(toWall('2026-03-29T01:30:00.000Z', 'Europe/Vienna'), 'Europe/Vienna'), '2026-03-29T01:30:00.000Z')
 })
+
+test('an event keeps a category the design no longer offers, and a new unknown one is refused', () => {
+  const root = site()
+  const file = path.join(root, 'content', 'events', 'sommer.yml')
+  fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('categories: []', 'categories:\n  - gone\n'))
+  fs.writeFileSync(path.join(root, 'design', 'categories.yml'), '- id: fest\n  de: Fest\n  en: Party\n')
+  const form = read(root, 'content/events/sommer.yml')
+  const keep = structuredClone(form.values) as { categories: string[] }
+  keep.categories = ['gone', 'fest']
+  assert.ok(writeContentForm(root, form.file, keep, form.revision).ok)
+  assert.match(fs.readFileSync(file, 'utf8'), /- gone/)
+  const again = read(root, 'content/events/sommer.yml')
+  const bad = structuredClone(again.values) as { categories: string[] }
+  bad.categories = ['gone', 'invented']
+  assert.equal(writeContentForm(root, again.file, bad, again.revision).ok, false)
+})

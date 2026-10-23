@@ -441,12 +441,20 @@ function writeEventForm(root: string, full: string, input: Record<string, unknow
   if (!place || !fs.existsSync(path.join(root, 'content', 'places', `${place}.yml`))) throw new Error('Choose a place that exists.')
   const categories = stringList(input.categories ?? [], 'categories')
   const categoryField = known.find((field) => field.id === 'categories')
-  for (const id of categories) if (categoryField && !categoryField.options.some((option) => option.id === id)) throw new Error(`Unknown category ${id}`)
+  // An id the design no longer offers is ignored, so one the event already had stays; a new one has to exist.
+  const hadCategories = new Set(Array.isArray(raw.categories) ? raw.categories.map(String) : [])
+  for (const id of categories) {
+    if (categoryField && !categoryField.options.some((option) => option.id === id) && !hadCategories.has(id)) throw new Error(`Unknown category ${id}`)
+  }
+  const hadFields = textMap(raw.fields)
   const fields: Record<string, string> = {}
   for (const field of known.filter((item) => item.id !== 'categories')) {
     const value = input[`field:${field.id}`]
     const ids = field.multiple ? stringList(value ?? [], field.id) : typeof value === 'string' && value ? [value] : []
-    for (const id of ids) if (!field.options.some((option) => option.id === id)) throw new Error(`Unknown option ${id} for ${field.id}`)
+    const had = new Set((hadFields[field.id] ?? '').split(',').map((item) => item.trim()))
+    for (const id of ids) {
+      if (!field.options.some((option) => option.id === id) && !had.has(id)) throw new Error(`Unknown option ${id} for ${field.id}`)
+    }
     if (ids.length > 0) fields[field.id] = ids.join(', ')
   }
   const before = Array.isArray(raw.dates) ? (raw.dates as { start?: unknown; end?: unknown }[]) : []
