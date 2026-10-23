@@ -42,3 +42,18 @@ test('deleting a chat leaves the other person untouched and opens another chat',
   assert.equal(openChat(opened, 'bao', bao.id)?.id, bao.id)
   assert.equal(deleteChat(opened, 'ada', bao.id), null)
 })
+
+test('a chat without a message says so, until it has one', () => {
+  const database = new Database(':memory:')
+  migrate(database)
+  const first = createChat(database, 'ada', 'edit')
+  assert.equal(listChats(database, 'ada').sessions.find((session) => session.id === first.id)?.empty, true)
+  saveChat(database, 'ada', first.id, [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'Hallo' }] }], 'edit', 'Hallo')
+  const after = listChats(database, 'ada').sessions
+  assert.equal(after.find((session) => session.id === first.id)?.empty, false)
+  const second = createChat(database, 'ada', 'edit')
+  assert.deepEqual(
+    listChats(database, 'ada').sessions.map((session) => [session.id === second.id ? 'second' : 'first', session.empty]).sort(),
+    [['first', false], ['second', true]],
+  )
+})

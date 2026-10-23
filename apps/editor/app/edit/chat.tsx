@@ -25,6 +25,7 @@ type SessionSummary = {
   title: string
   mode: EditorMode
   updatedAt: number
+  empty?: boolean
 }
 
 type ChatRecord = SessionSummary & {
@@ -39,6 +40,15 @@ function elementFrom(target: EventTarget | null): Element | null {
   if (node.nodeType === 3) return node.parentElement
   if (node.nodeType === 1) return node as Element
   return null
+}
+
+/** A chat as the picker names it. A chat without a name yet is told apart by when it was made. */
+function chatLabel(session: SessionSummary, language: EditorLanguage): string {
+  if (session.title !== 'New chat') return session.title
+  const at = new Date(session.updatedAt)
+  const today = new Date().toDateString() === at.toDateString()
+  const when = today ? at.toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' }) : at.toLocaleString(language, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  return `${uiText(language, 'chat.newTitle')} · ${when}`
 }
 
 export function ChatPanel({
@@ -115,6 +125,11 @@ export function ChatPanel({
             body: JSON.stringify({ mode: 'setup' }),
           })
         }
+        // A chat that stayed in setup after the setup was accepted goes back to editing.
+        if (!setupOpen && opened.mode === 'setup') {
+          opened.mode = 'edit'
+          void patchMode(opened.id, 'edit')
+        }
         setSessions(data.sessions.map((session) => (session.id === opened.id ? { ...session, mode: opened.mode } : session)))
         setCurrent(opened)
       })
@@ -166,10 +181,28 @@ export function ChatPanel({
     setPreviewNews(false)
   }
 
-  function remember(next: ChatRecord) {
+  function patchMode(id: string, mode: EditorMode): Promise<unknown> {
+    return fetch(`/api/sessions/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    })
+  }
+
+  function remember(opened: ChatRecord) {
+    // Only a setup that is still open has chats in setup mode.
+    let next = opened
+    if (!setupActive && opened.mode === 'setup') {
+      next = { ...opened, mode: 'edit' }
+      void patchMode(opened.id, 'edit')
+    }
     setCurrent(next)
-    setSessions((list) => [next, ...list.filter((session) => session.id !== next.id)])
+    setSessions((list) => [{ ...next, empty: next.messages.length === 0 }, ...list.filter((session) => session.id !== next.id)])
     setConfirmDelete(false)
+  }
+
+  function focusDraft() {
+    setTimeout(() => fillDraftRef.current(''), 80)
   }
 
   async function openSession(id: string) {
@@ -181,13 +214,21 @@ export function ChatPanel({
 
   async function createSession() {
     if (streamBusy) return
+    // An empty chat is already a new chat: open it instead of adding another.
+    const waiting = sessions.find((session) => session.empty)
+    if (waiting) {
+      if (waiting.id !== current?.id) await openSession(waiting.id)
+      focusDraft()
+      return
+    }
     const response = await fetch('/api/sessions', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ mode: current?.mode ?? 'edit' }),
+      body: JSON.stringify({ mode: setupActive ? 'setup' : 'edit' }),
     })
     if (!response.ok) return
     remember((await response.json()) as ChatRecord)
+    focusDraft()
   }
 
   async function deleteSession() {
@@ -215,7 +256,11 @@ export function ChatPanel({
     void fetch('/api/setup')
       .then((response) => response.json())
       .then((data: { accepted?: boolean }) => {
-        if (data.accepted === true) setSetupActive(false)
+        if (data.accepted !== true) return
+        setSetupActive(false)
+        // The setup is done, so this chat goes back to editing. The server saves that too when a reply ends.
+        setCurrent((record) => (record && record.mode === 'setup' ? { ...record, mode: 'edit' } : record))
+        setSessions((list) => list.map((item) => (item.mode === 'setup' ? { ...item, mode: 'edit' } : item)))
       })
   }
 
@@ -455,9 +500,6 @@ export function ChatPanel({
     <TopBar
       language={language}
       siteName={shownName}
-      pages={pages}
-      currentSlug={shown?.entry.slug ?? null}
-      onPage={openPage}
       changes={changeCount}
       publishBusy={publishBusy}
       onPublish={() => void openPublish()}
@@ -482,14 +524,14 @@ export function ChatPanel({
                 <select aria-label={t('chat.picker')} value={current.id} disabled={streamBusy} onChange={(event) => void openSession(event.target.value)}>
                   {sessions.map((session) => (
                     <option key={session.id} value={session.id}>
-                      {session.title}
+                      {chatLabel(session, language)}
                     </option>
                   ))}
                 </select>
-                {(setupActive || current.mode === 'setup') && (
-                  <button type="button" className="pill" aria-pressed={current.mode === 'setup'} disabled={streamBusy} onClick={() => selectMode('setup')}>
+                {setupActive && current.mode === 'setup' && (
+                  <span className="pill" role="status" title={t('chat.setupHelp')}>
                     {t('chat.setup')}
-                  </button>
+                  </span>
                 )}
                 {setupActive && current.mode === 'setup' && (
                   <button
@@ -575,6 +617,19 @@ export function ChatPanel({
             <span className="edit-mode-switch" aria-hidden="true" />
             {t('preview.editMode')}
           </label>
+          {pages.length > 0 && (
+            <label className="page-switch" title={t('bar.pageHelp')}>
+              <span className="page-label">{t('bar.page')}</span>
+              <select aria-label={t('bar.page')} value={shown?.entry.slug ?? ''} onChange={(event) => event.target.value && openPage(event.target.value)}>
+                {!shown && <option value="">{t('bar.pageNone')}</option>}
+                {pages.map((page) => (
+                  <option key={page.slug} value={page.slug}>
+                    {page.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <span className="edit-mode-tip" id="edit-mode-tip">{correcting ? t('preview.editHint') : ''}</span>
           <div className="segmented device-switch" role="group" aria-label={t('bar.device')}>
             <button type="button" aria-pressed={device === 'desktop'} onClick={() => setDevice('desktop')}>

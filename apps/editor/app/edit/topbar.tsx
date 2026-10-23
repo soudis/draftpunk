@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import type { PageEntry } from '@/lib/page-match'
 import { uiText, type EditorLanguage } from '@/lib/ui-text'
 
 /** Closes on a click outside and on Escape. */
@@ -29,9 +28,6 @@ function usePopover() {
 export function TopBar({
   language,
   siteName,
-  pages,
-  currentSlug,
-  onPage,
   changes,
   publishBusy,
   onPublish,
@@ -43,9 +39,6 @@ export function TopBar({
 }: {
   language: EditorLanguage
   siteName: string
-  pages: PageEntry[]
-  currentSlug: string | null
-  onPage: (slug: string) => void
   /** How many unpublished changes the draft has, or null while that is not known. */
   changes: number | null
   publishBusy: boolean
@@ -62,19 +55,6 @@ export function TopBar({
   return (
     <header className="topbar">
       <h1 className="site-name">{siteName}</h1>
-      {pages.length > 0 && (
-        <label className="page-switch">
-          <span className="visually-hidden">{t('bar.page')}</span>
-          <select value={currentSlug ?? ''} onChange={(event) => event.target.value && onPage(event.target.value)}>
-            {currentSlug === null && <option value="">{t('bar.pageNone')}</option>}
-            {pages.map((page) => (
-              <option key={page.slug} value={page.slug}>
-                {page.title}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
       <div className="topbar-end">
         <span className="change-count" aria-live="polite">{countText}</span>
         <button className="publish" type="button" disabled={publishBusy} onClick={onPublish}>

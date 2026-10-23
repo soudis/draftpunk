@@ -8,6 +8,7 @@ import { modelSupportsVision } from '@/lib/model-catalog'
 import { needsReasoningPassBack, outputLimit } from '@/lib/thinking'
 import { sessionFromRequest } from '@/lib/session'
 import { chatDatabasePath, siteRoot } from '@/lib/site'
+import { setupAccepted } from '@schlor/generator'
 import { agentRun } from '@/lib/agent'
 import { withoutEmptyReplies } from '@/lib/history'
 import { parseMode } from '@/lib/mode'
@@ -104,7 +105,9 @@ export async function POST(request: Request) {
       })
       const assistant = [...messages].reverse().find((message) => message.role === 'assistant')
       if (revision && assistant?.id) rememberReply(sessionId, assistant.id, revision)
-      storeChat(session.sub, sessionId, messages, mode, naming ? await naming : undefined)
+      // A chat leaves setup when the setup is accepted, by the agent or by the person.
+      const savedMode = mode === 'setup' && setupAccepted(root) ? 'edit' : mode
+      storeChat(session.sub, sessionId, messages, savedMode, naming ? await naming : undefined)
     },
   })
 }

@@ -11,6 +11,8 @@ export type SessionSummary = {
   title: string
   mode: EditorMode
   updatedAt: number
+  /** The chat has no message yet. */
+  empty?: boolean
 }
 
 export type ChatSession = SessionSummary & {
@@ -202,13 +204,14 @@ export function removeChat(owner: string, id: string) {
 
 function summaries(database: Database.Database, owner: string): SessionSummary[] {
   const rows = database
-    .prepare('SELECT id, title, mode, updated_at FROM sessions WHERE owner = ? ORDER BY updated_at DESC')
-    .all(owner) as { id: string; title: string; mode: string; updated_at: number }[]
+    .prepare("SELECT id, title, mode, updated_at, messages = '[]' AS empty FROM sessions WHERE owner = ? ORDER BY updated_at DESC")
+    .all(owner) as { id: string; title: string; mode: string; updated_at: number; empty: number }[]
   return rows.map((row) => ({
     id: row.id,
     title: row.title,
     mode: parseMode(row.mode),
     updatedAt: row.updated_at,
+    empty: row.empty === 1,
   }))
 }
 

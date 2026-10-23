@@ -433,3 +433,11 @@ Built after the SEO look, and all of it needs the site's address (it is made of 
 - Sharing: `og:image` is the first large (300 px or more) picture in the page's main part that is not see-through, a GIF or an SVG; the site's `social` asset when the page has none; `og:type` is `article` with `article:published_time` for a post; `twitter:card` is `summary_large_image` with a picture and `summary` without. A tag the design wrote is kept.
 - A feed: each language with posts has an Atom feed (`/feed.xml`, `/en/feed.xml`) of up to 50 posts, newest first, and every page of that language has a link to it.
 - Not done: breadcrumbs, `lastmod` in the sitemap, `srcset` and smaller picture sizes, a fingerprint on `styles.css`, the picture description as alt text.
+
+### The top left of the editor, made clear
+
+A person could not tell what "Einrichtung" was, could not remove it, found "+ Neu" doing nothing, and did not know what the page names next to the title were. Found: a chat stayed in setup mode after the setup was accepted (nothing reset it), the pill was a button that could only set the mode, and a new chat copied the mode, so every new chat looked the same, all called "New chat". Now:
+- "Einrichtung" is a label with an explanation, shown only while a setup is open, beside the button "Einrichtung abschließen". A chat goes back to editing when the setup is accepted, by the agent or by the person: the server saves that when a reply ends, and a chat that was left in setup (an older one) is switched when it is opened.
+- "+ Neu" opens a chat that is still empty instead of adding another one, focuses the message field, and a new chat starts in setup mode only while a setup is open. A chat with no name yet is listed as "Neuer Chat · 14:05".
+- The page switcher moved from the top bar into the preview toolbar, beside Edit Mode, with the word "Seite" and a tooltip; on a phone the word is left out and the site name takes its place in the top bar.
+- Not found: why "+ Neu" looked greyed out for one person. If it was, a request that never finished kept the chat busy; that is not reproduced.

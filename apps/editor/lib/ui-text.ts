@@ -53,6 +53,8 @@ const TEXTS = {
   'tips.example.2': { de: 'Lege eine neue Seite „Werkstatt“ an, mit einem kurzen Text und zwei Fotos.', en: 'Add a new page “Workshop”, with a short text and two photos.' },
   'tips.example.3': { de: 'Trage einen Termin ein: Sommerfest am 5. Juli um 16 Uhr im Hof.', en: 'Add an event: summer party on 5 July at 4 pm in the courtyard.' },
   'bar.page': { de: 'Seite', en: 'Page' },
+  'bar.pageHelp': { de: 'Zeigt diese Seite in der Vorschau. Ein Klick auf einen Link in der Vorschau wechselt sie ebenfalls.', en: 'Shows this page in the preview. Clicking a link in the preview changes it too.' },
+  'chat.setupHelp': { de: 'Die Einrichtung läuft noch. Der Assistent richtet die Website mit euch ein, bis ihr sie abschließt.', en: 'The setup is still running. The assistant sets the website up with you until you finish it.' },
   'bar.pageNone': { de: 'Andere Seite', en: 'Other page' },
   'bar.device': { de: 'Vorschau', en: 'Preview' },
   'bar.desktop': { de: 'Computer', en: 'Desktop' },
