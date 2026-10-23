@@ -36,6 +36,12 @@
         {% for item in alternates %}
         <a class="text-link" href="{{ item.href }}">{{ item.label }}</a>
         {% endfor %}
+        {% if search %}
+        <form class="site-search normal-case tracking-normal" role="search" action="{{ search }}" method="get">
+          <label class="sr-only" for="site-search-field">{{ labels.search_label }}</label>
+          <input id="site-search-field" class="w-full border border-border px-3 py-1 md:w-40" type="search" name="q" placeholder="{{ labels.search_placeholder }}" autocomplete="off">
+        </form>
+        {% endif %}
       </nav>
     </div>
   </header>

@@ -1,0 +1,3 @@
+kind: generated
+purpose: "The search page. Its script searches the index the generator writes for each language (pages, posts, events). The generator fills it."
+slots: {}

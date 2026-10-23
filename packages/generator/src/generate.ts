@@ -34,6 +34,7 @@ import {
 } from './model'
 import { listPageSlugs, pageHasLanguage, readPage, writePage, type PageFile } from './pages'
 import { describe, enhanceHead, enhancePictures, robotsTxt, sitemapXml, type PageMeta } from './baseline'
+import { searchIndexJson, searchText, type SearchEntry } from './search'
 import { fontFaceCss, fontPreloadLinks, readFonts } from './fonts'
 import { resolveSlots } from './slots'
 import { readTokens, tokensCss } from './tokens'
@@ -110,20 +111,26 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
   const written: string[] = []
   const put = (urlPath: string, html: string, meta: PageMeta) => {
     writeHtml(outDir, urlPath, html, hints, (shown) => enhanceHead(enhancePictures(shown, root), meta, site, { preload, themeColor }))
-    written.push(urlPath)
+    if (!meta.noindex) written.push(urlPath)
   }
+  // The search needs the design to have its page; a site made before it has none, and gets neither the page nor the index.
+  const searchOn = layoutExists(designDir, 'search')
   let pageCount = 0
   for (const language of site.languages) {
     const lang = language.id
     env.addGlobal('labels', readLabels(root, lang))
+    env.addGlobal('search', searchOn ? routePath('/suche/', lang, site) : '')
+    const entries: SearchEntry[] = []
     for (const page of pages.filter((item) => item.lang === lang)) {
       const url = pageUrl(page.slug, lang, site)
-      put(url, renderPage(env, designDir, page, lang, site, menu, footer, pages, homeNews, events, places, hints), {
+      const html = renderPage(env, designDir, page, lang, site, menu, footer, pages, homeNews, events, places, hints)
+      put(url, html, {
         title: page.title,
         description: pageDescription(designDir, page, lang),
         lang,
         path: url,
       })
+      entries.push({ t: page.title, u: url, k: page.date ? 'post' : 'page', x: searchText(html), ...(page.date ? { d: page.date } : {}) })
       pageCount += 1
     }
     const blog = routePath('/blog/', lang, site)
@@ -132,20 +139,29 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
     put(calendar, renderCalendar(env, lang, site, menu, footer, events, places, hints), { title: heading(lang, 'Kalender', 'Calendar'), lang, path: calendar })
     for (const event of events) {
       const eventPath = eventUrl(event.slug, lang, site)
-      put(eventPath, renderEvent(env, event, lang, site, fields, menu, footer, places, hints), {
+      const html = renderEvent(env, event, lang, site, fields, menu, footer, places, hints)
+      put(eventPath, html, {
         title: event.title[lang] || event.slug,
         description: describe(renderContent(event.body[lang] || '')),
         lang,
         path: eventPath,
       })
+      if (event.title[lang]?.trim()) entries.push({ t: event.title[lang], u: eventPath, k: 'event', x: searchText(html) })
     }
     if (events.length > 0) {
       const index = routePath('/events/', lang, site)
       put(index, renderEventIndex(env, lang, site, menu, footer, events, hints), { title: heading(lang, 'Termine', 'Events'), lang, path: index })
     }
+    if (searchOn) {
+      const labels = readLabels(root, lang)
+      const searchPath = routePath('/suche/', lang, site)
+      put(searchPath, renderSearch(env, lang, site, menu, footer, hints), { title: labels.search_title || heading(lang, 'Suche', 'Search'), lang, path: searchPath, noindex: true })
+      fs.writeFileSync(path.join(outDir, `search-index.${lang}.json`), searchIndexJson(entries))
+    }
   }
 
   env.addGlobal('labels', readLabels(root, defaultLang))
+  env.addGlobal('search', searchOn ? routePath('/suche/', defaultLang, site) : '')
   writeHtml(outDir, '/404.html', renderNotFound(env, defaultLang, site, menu, footer, hints), hints, (shown) =>
     enhanceHead(enhancePictures(shown, root), { title: readLabels(root, defaultLang).not_found_title ?? '404', lang: defaultLang, path: '/404.html' }, { name: site.name }, { preload, themeColor }),
   )
@@ -314,6 +330,15 @@ function renderNotFound(env: nunjucks.Environment, lang: Lang, site: SiteConfig,
       baseContext(((env.getGlobal('labels') as Record<string, string> | undefined)?.not_found_title) ?? '404', lang, site, nav, footer, () => '/404.html', has, {}),
     ),
     'notfound',
+  )
+}
+
+function renderSearch(env: nunjucks.Environment, lang: Lang, site: SiteConfig, nav: NavItem[], footer: NavItem[], hints: boolean): string {
+  void hints
+  const labels = env.getGlobal('labels') as Record<string, string> | undefined
+  return withLayoutAttribute(
+    env.render(layoutTemplatePath('search'), baseContext(labels?.search_title || heading(lang, 'Suche', 'Search'), lang, site, nav, footer, (language) => routePath('/suche/', language, site), () => true, {})),
+    'search',
   )
 }
 

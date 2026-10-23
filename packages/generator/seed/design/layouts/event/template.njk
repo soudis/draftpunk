@@ -5,7 +5,7 @@
   <p class="mt-4 text-muted">{{ place }}{% if address %} · {{ address }}{% endif %}</p>
   <ul class="mt-4 list-disc pl-5">
     {% for date in dates %}
-    <li>{{ date.start }}{% if date.end %} – {{ date.end }}{% endif %}</li>
+    <li><time datetime="{{ date.start }}">{{ date.start | formatDay(lang) }}</time>{% if date.end %} – <time datetime="{{ date.end }}">{{ date.end | formatDay(lang) }}</time>{% endif %}</li>
     {% endfor %}
   </ul>
   {% for field in shownFields %}

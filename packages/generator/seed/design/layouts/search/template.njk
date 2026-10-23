@@ -1,0 +1,102 @@
+{% extends "shell.njk" %}
+{% block body %}
+<section class="mx-auto max-w-text px-6 py-12" data-search data-index="/search-index.{{ lang }}.json" data-kind-page="{{ labels.search_kind_page }}" data-kind-post="{{ labels.search_kind_post }}" data-kind-event="{{ labels.search_kind_event }}" data-count-one="{{ labels.search_count_one }}" data-count-many="{{ labels.search_count_many }}" data-none="{{ labels.search_none }}" data-failed="{{ labels.search_failed }}">
+  <h1 class="font-serif text-4xl text-heading">{{ labels.search_title }}</h1>
+  <form class="search-box mt-6 flex gap-2" role="search" action="{{ prefix }}/suche/" method="get">
+    <label class="sr-only" for="search-field">{{ labels.search_label }}</label>
+    <input id="search-field" class="min-w-0 flex-1 border border-border px-4 py-2" type="search" name="q" placeholder="{{ labels.search_placeholder }}" autocomplete="off" autofocus>
+    <button class="bg-primary px-5 py-2 text-on-primary" type="submit">{{ labels.search_button }}</button>
+  </form>
+  <p class="mt-4 text-sm text-muted" data-status role="status" aria-live="polite"></p>
+  <ol class="search-results mt-6 space-y-6" data-results></ol>
+  <noscript><p class="mt-6">{{ labels.search_needs_script }}</p></noscript>
+</section>
+<script>
+(() => {
+  const root = document.querySelector('[data-search]')
+  if (!root) return
+  const form = root.querySelector('form')
+  const input = root.querySelector('input[name="q"]')
+  const list = root.querySelector('[data-results]')
+  const status = root.querySelector('[data-status]')
+  const kinds = { page: root.dataset.kindPage, post: root.dataset.kindPost, event: root.dataset.kindEvent }
+  let index = null
+  let loading = null
+  const fold = (text) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ß/g, 'ss').toLowerCase()
+  const load = () => {
+    if (index) return Promise.resolve(index)
+    loading = loading || fetch(root.dataset.index).then((response) => response.json()).then((data) => (index = data.map((entry) => ({ ...entry, ft: fold(entry.t), fx: fold(entry.x) }))))
+    return loading
+  }
+  // The place of a word in the original text, which folding (ß to ss, accents removed) moves.
+  const locate = (text, word) => {
+    let folded = ''
+    const origin = []
+    for (let i = 0; i < text.length; i += 1) {
+      const piece = fold(text[i])
+      for (let j = 0; j < piece.length; j += 1) origin.push(i)
+      folded += piece
+    }
+    const at = folded.indexOf(word)
+    return at < 0 ? 0 : origin[at]
+  }
+  const search = (query) => {
+    const words = fold(query).split(/\s+/).filter(Boolean)
+    if (words.length === 0) return []
+    const hits = []
+    for (const entry of index) {
+      let score = 0
+      let ok = true
+      for (const word of words) {
+        const inTitle = entry.ft.includes(word)
+        const inText = entry.fx.includes(word)
+        if (!inTitle && !inText) { ok = false; break }
+        score += (inTitle ? 10 : 0) + (entry.ft.startsWith(word) ? 5 : 0) + (inText ? 1 : 0)
+      }
+      if (ok) hits.push({ entry, score, words })
+    }
+    hits.sort((a, b) => b.score - a.score || (b.entry.d || '').localeCompare(a.entry.d || ''))
+    return hits.slice(0, 30)
+  }
+  const show = (query, hits) => {
+    list.textContent = ''
+    for (const { entry, words } of hits) {
+      const item = document.createElement('li')
+      const link = document.createElement('a')
+      link.href = entry.u
+      link.textContent = entry.t
+      link.className = 'text-xl font-serif text-link'
+      const meta = document.createElement('span')
+      meta.className = 'ml-2 text-xs uppercase tracking-wide text-muted'
+      meta.textContent = [kinds[entry.k], entry.d].filter(Boolean).join(' · ')
+      const snippet = document.createElement('p')
+      snippet.className = 'mt-1 text-sm'
+      const at = Math.max(0, locate(entry.x, words[0]) - 40)
+      snippet.textContent = (at > 0 ? '… ' : '') + entry.x.slice(at, at + 180) + (at + 180 < entry.x.length ? ' …' : '')
+      item.append(link, meta, snippet)
+      list.append(item)
+    }
+    const count = hits.length
+    status.textContent = !query ? '' : count === 0 ? root.dataset.none : (count === 1 ? root.dataset.countOne : root.dataset.countMany).replace('{count}', String(count))
+  }
+  const run = (query) => {
+    const clean = query.trim()
+    if (!clean) { list.textContent = ''; status.textContent = ''; return }
+    load().then(() => show(clean, search(clean))).catch(() => { status.textContent = root.dataset.failed })
+  }
+  form.addEventListener('submit', (event) => {
+    event.preventDefault()
+    const query = input.value.trim()
+    history.replaceState(null, '', query ? `?q=${encodeURIComponent(query)}` : location.pathname)
+    run(query)
+  })
+  let timer = null
+  input.addEventListener('input', () => {
+    clearTimeout(timer)
+    timer = setTimeout(() => run(input.value), 150)
+  })
+  const first = new URLSearchParams(location.search).get('q')
+  if (first) { input.value = first; run(first) }
+})()
+</script>
+{% endblock %}

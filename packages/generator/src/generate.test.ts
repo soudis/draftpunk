@@ -32,6 +32,7 @@ import {
 } from './index'
 import { scopeLayoutCss } from './layouts'
 import { hasTransparency } from './baseline'
+import { searchIndexJson, searchText, textLimit } from './search'
 import { fontFaceCss, fontPreloadLinks, parseFonts, readFonts } from './fonts'
 import { contrastRatio, contrastWarnings, nearestColor, parseTokens, tokenSummary } from './tokens'
 
@@ -667,4 +668,96 @@ test('a logo with see-through parts is marked, and the starter keeps its loading
   assert.equal(fs.existsSync(page), true)
   const css = fs.readFileSync(path.join(result.outDir, 'assets', 'styles.css'), 'utf8')
   assert.match(css, /img:not\(\[data-transparent\]\)/)
+})
+
+test('the search index holds pages, posts and events in each language, and the search page is not listed for search engines', () => {
+  const root = newSite('housing-search-')
+  writePage(root, { slug: 'werkstatt', layout: 'article', title: { de: 'Werkstatt', en: 'Workshop' }, slots: { body: { de: 'Hier wird gelötet und gesägt. Öffnungszeiten: Straße 5.', en: 'We solder and saw here.' } } })
+  writePage(root, { slug: 'dach', layout: 'article', date: '2025-03-04', title: { de: 'Neues Dach', en: 'New roof' }, slots: { body: { de: 'Das Dach ist fertig & dicht.', en: 'The roof is done.' } } })
+  fs.mkdirSync(path.join(root, 'content', 'events'), { recursive: true })
+  fs.writeFileSync(
+    path.join(root, 'content', 'events', 'fest.yml'),
+    ['slug: fest', 'title:', '  de: Sommerfest', '  en: Summer party', 'body:', '  de: Grillen im Hof.', 'place: haus', 'categories: []', 'dates:', '  - start: 2031-07-05T16:00:00.000Z'].join('\n'),
+  )
+  const result = generate(root)
+  const de = JSON.parse(fs.readFileSync(path.join(result.outDir, 'search-index.de.json'), 'utf8')) as { t: string; u: string; k: string; x: string; d?: string }[]
+  const en = JSON.parse(fs.readFileSync(path.join(result.outDir, 'search-index.en.json'), 'utf8')) as { t: string; u: string; k: string; x: string }[]
+  type Found = { t: string; u: string; k: string; x: string; d?: string }
+  const byTitle = (list: Found[], title: string) => list.find((entry) => entry.t === title)
+  assert.equal(byTitle(de, 'Werkstatt')?.k, 'page')
+  assert.match(byTitle(de, 'Werkstatt')?.x ?? '', /gelötet und gesägt\. Öffnungszeiten/)
+  assert.equal(byTitle(de, 'Neues Dach')?.k, 'post')
+  assert.equal(byTitle(de, 'Neues Dach')?.d, '2025-03-04')
+  assert.match(byTitle(de, 'Neues Dach')?.x ?? '', /fertig & dicht/)
+  assert.equal(byTitle(de, 'Sommerfest')?.k, 'event')
+  assert.match(byTitle(de, 'Sommerfest')?.x ?? '', /Grillen im Hof/)
+  assert.equal(byTitle(en, 'Workshop')?.u, '/en/werkstatt/')
+  assert.equal(byTitle(en, 'Summer party')?.k, 'event')
+  // The lists and the pages the site makes are not in it, and neither is the menu.
+  assert.equal(de.some((entry) => /^(Aktuelles|Kalender|Termine|Suche|Seite nicht gefunden)$/.test(entry.t)), false)
+  assert.equal(JSON.stringify(de).includes('Zum Inhalt springen'), false)
+  const search = fs.readFileSync(path.join(result.outDir, 'suche', 'index.html'), 'utf8')
+  assert.match(search, /<meta name="robots" content="noindex, follow">/)
+  assert.match(search, /data-index="\/search-index\.de\.json"/)
+  assert.match(fs.readFileSync(path.join(result.outDir, 'en', 'suche', 'index.html'), 'utf8'), /data-index="\/search-index\.en\.json"/)
+  const home = fs.readFileSync(path.join(result.outDir, 'index.html'), 'utf8')
+  assert.match(home, /<form class="site-search[^"]*" role="search" action="\/suche\/" method="get">/)
+  assert.equal(home.includes('noindex'), false)
+  fs.writeFileSync(path.join(root, 'design', 'site.yml'), `${fs.readFileSync(path.join(root, 'design', 'site.yml'), 'utf8')}\nurl: https://haus.example\n`)
+  const sitemap = fs.readFileSync(path.join(generate(root).outDir, 'sitemap.xml'), 'utf8')
+  assert.equal(sitemap.includes('/suche/'), false)
+  assert.match(sitemap, /\/werkstatt\//)
+})
+
+test('a site made before the search has neither its page nor its index', () => {
+  const root = newSite('housing-no-search-')
+  fs.rmSync(path.join(root, 'design', 'layouts', 'search'), { recursive: true, force: true })
+  const result = generate(root)
+  assert.equal(fs.existsSync(path.join(result.outDir, 'search-index.de.json')), false)
+  assert.equal(fs.existsSync(path.join(result.outDir, 'suche', 'index.html')), false)
+  assert.equal(fs.readFileSync(path.join(result.outDir, 'index.html'), 'utf8').includes('role="search"'), false)
+})
+
+test('the words of a page are its main part as plain text, and a big site keeps less of each page', () => {
+  assert.equal(
+    searchText('<html><body><header><nav>Menü</nav></header><main><h1>Titel</h1><p>Ein&nbsp;Satz &amp; &#228;ndern <script>x()</script><b>fett</b></p><form>Suche</form></main><footer>Fuß</footer></body></html>'),
+    'Titel Ein Satz & ändern fett',
+  )
+  assert.equal(searchText('<main>' + 'wort '.repeat(1000) + '</main>', 100).length <= 100, true)
+  assert.ok(textLimit(100) > textLimit(500) && textLimit(500) > textLimit(900))
+  const big = JSON.parse(searchIndexJson(Array.from({ length: 900 }, (_value, index) => ({ t: `T${index}`, u: `/${index}/`, k: 'page' as const, x: 'wort '.repeat(500) })))) as { x: string }[]
+  assert.ok(big[0].x.length <= 400)
+})
+
+test('the links to the other languages are whole addresses with the page itself and x-default, once the site has its address', () => {
+  const root = newSite('housing-hreflang-')
+  const before = generate(root)
+  const relative = fs.readFileSync(path.join(before.outDir, 'index.html'), 'utf8')
+  assert.match(relative, /<link rel="alternate" hreflang="en" href="\/en\/">/)
+  assert.equal(relative.includes('x-default'), false)
+  const file = path.join(root, 'design', 'site.yml')
+  fs.writeFileSync(file, `${fs.readFileSync(file, 'utf8')}\nurl: https://haus.example\n`)
+  const result = generate(root)
+  const de = fs.readFileSync(path.join(result.outDir, 'index.html'), 'utf8')
+  assert.match(de, /<link rel="alternate" hreflang="en" href="https:\/\/haus\.example\/en\/">/)
+  assert.match(de, /<link rel="alternate" hreflang="de" href="https:\/\/haus\.example\/">/)
+  assert.match(de, /<link rel="alternate" hreflang="x-default" href="https:\/\/haus\.example\/">/)
+  const en = fs.readFileSync(path.join(result.outDir, 'en', 'index.html'), 'utf8')
+  assert.match(en, /<link rel="alternate" hreflang="de" href="https:\/\/haus\.example\/">/)
+  assert.match(en, /<link rel="alternate" hreflang="en" href="https:\/\/haus\.example\/en\/">/)
+  assert.match(en, /<link rel="alternate" hreflang="x-default" href="https:\/\/haus\.example\/">/)
+  assert.equal((de.match(/hreflang="de"/g) ?? []).length, 1)
+  assert.equal((de.match(/hreflang="x-default"/g) ?? []).length, 1)
+})
+
+test('the starter shows the dates of an event as people read them, in a time element', () => {
+  const root = newSite('housing-event-dates-')
+  fs.mkdirSync(path.join(root, 'content', 'events'), { recursive: true })
+  fs.writeFileSync(
+    path.join(root, 'content', 'events', 'fest.yml'),
+    ['slug: fest', 'title:', '  de: Fest', '  en: Party', 'body:', '  de: Kommt.', '  en: Come.', 'place: hof', 'categories: []', 'dates:', '  - start: 2031-07-05T16:00:00.000Z', '    end: 2031-07-05T22:00:00.000Z'].join('\n'),
+  )
+  const page = fs.readFileSync(path.join(generate(root).outDir, 'events', 'fest', 'index.html'), 'utf8')
+  assert.match(page, /<time datetime="2031-07-05T16:00:00\.000Z">5\. Juli 2031, 18:00<\/time> – <time datetime="2031-07-05T22:00:00\.000Z">/)
+  assert.equal(page.includes('>2031-07-05T16:00:00.000Z<'), false)
 })

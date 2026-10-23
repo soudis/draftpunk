@@ -5,7 +5,7 @@ import { parse, stringify } from 'yaml'
 import { parseSlotSchema, serializeSlotSchema, slotSignature, type SlotSchema } from './slots'
 
 /** Layouts the generator fills with site data. A page never uses them. */
-export const GENERATED_LAYOUTS = ['event', 'calendar', 'archive', 'notfound'] as const
+export const GENERATED_LAYOUTS = ['event', 'calendar', 'archive', 'notfound', 'search'] as const
 export const REQUIRED_LAYOUTS = GENERATED_LAYOUTS
 
 const NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/

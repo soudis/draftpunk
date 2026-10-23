@@ -100,6 +100,10 @@ _Avoid_: inspiration, template, import
 A public website of the person, or one they may use, from which setup takes texts and pictures, and optionally the look. Setup asks for it by itself. The person says what to take: the look, texts, pictures, and whether that is the main pages or every page and post. Its menu structure is copied too, so the new menu has the same groups. Unlike a reference, a source site gives content to the new site instance.
 _Avoid_: import, migration, old site, copy
 
+**Search**:
+Finding words on the public site: a page of its own and a field in the header. It runs in the visitor's browser on an index the generator writes for each language, with the pages, the posts (dated pages) and the events. It sends nothing to anyone.
+_Avoid_: search engine, search service
+
 **Site asset**:
 A picture that belongs to the whole site, by name: its logo, its favicon, the picture shown when a page is shared, a texture the styles use. It is kept in the media library and named in the site settings, and the design shows it by name. Unlike a picture slot, it is not the content of one page.
 _Avoid_: brand image, global picture

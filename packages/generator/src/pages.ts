@@ -89,14 +89,14 @@ export function pagesByLayout(root: string): Map<string, string[]> {
 
 /** Why a page is not complete: a title or a required slot missing, a slot the layout does not have. */
 /** Names of pages the site makes itself: a page with one of them would be written over, or over the page. */
-export const RESERVED_SLUGS = ['blog', 'kalender', 'events', '404'] as const
+export const RESERVED_SLUGS = ['blog', 'kalender', 'events', 'suche', '404'] as const
 
 export function checkPage(root: string, page: PageFile): string[] {
   const designDir = path.join(root, 'design')
   const site = readSiteConfig(root)
   const errors: string[] = []
   if ((RESERVED_SLUGS as readonly string[]).includes(page.slug)) {
-    errors.push(`the name ${page.slug} is made by the site (the news list is /blog/, the calendar /kalender/, the events /events/). Choose another name, and link to those addresses from the menu`)
+    errors.push(`the name ${page.slug} is made by the site (the news list is /blog/, the calendar /kalender/, the events /events/, the search /suche/). Choose another name, and link to those addresses from the menu`)
   }
   for (const id of Object.keys(page.title)) {
     if (!site.languages.some((language) => language.id === id)) errors.push(`title has unknown language ${id}`)

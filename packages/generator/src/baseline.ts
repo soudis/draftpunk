@@ -121,20 +121,49 @@ export type PageMeta = {
   lang: string
   /** The address of the page on the site, such as /werkstatt/ */
   path: string
+  /** A page that search engines should not list, such as the search results. */
+  noindex?: boolean
 }
 
 const LOCALE: Record<string, string> = { de: 'de_AT', en: 'en_GB', fr: 'fr_FR', it: 'it_IT', es: 'es_ES' }
+
+/**
+ * The links to the other languages of a page, as search engines want them: whole addresses, one for the page itself,
+ * and x-default for the language a visitor gets when nothing fits. The design writes the links; they are made whole here.
+ */
+function withAbsoluteAlternates(head: string, meta: PageMeta, site: { url?: string; languages?: { id: string }[] }): string {
+  if (!site.url) return head
+  const base = site.url
+  const found = new Map<string, string>()
+  const whole = head.replace(/<link\b[^>]*>/gi, (tag) => {
+    if (!/\brel=["']alternate["']/i.test(tag)) return tag
+    const lang = /\bhreflang=["']([^"']+)["']/i.exec(tag)?.[1]
+    const href = /\bhref=["']([^"']+)["']/i.exec(tag)?.[1]
+    if (!lang || !href) return tag
+    const address = href.startsWith('/') ? `${base}${href}` : href
+    found.set(lang, address)
+    return href.startsWith('/') ? tag.replace(href, address) : tag
+  })
+  if (found.size === 0) return head
+  const add: string[] = []
+  const own = `${base}${meta.path}`
+  if (!found.has(meta.lang)) add.push(`<link rel="alternate" hreflang="${meta.lang}" href="${escapeAttribute(own)}">`)
+  const first = site.languages?.[0]?.id
+  const standard = first === meta.lang ? own : first ? found.get(first) : undefined
+  if (standard && !found.has('x-default')) add.push(`<link rel="alternate" hreflang="x-default" href="${escapeAttribute(standard)}">`)
+  return add.length === 0 ? whole : `${whole}  ${add.join('\n  ')}\n`
+}
 
 /** What a page says about itself to search engines and when it is shared. A tag the design already wrote is kept. */
 export function enhanceHead(
   html: string,
   meta: PageMeta,
-  site: { name: string; url?: string; assets?: Record<string, string> },
+  site: { name: string; url?: string; assets?: Record<string, string>; languages?: { id: string }[] },
   extra: { preload: string[]; themeColor?: string },
 ): string {
   const close = /<\/head>/i.exec(html)
   if (!close) return html
-  const head = html.slice(0, close.index)
+  const head = withAbsoluteAlternates(html.slice(0, close.index), meta, site)
   const tags: string[] = [...extra.preload.filter((link) => !head.includes(link.match(/href="([^"]+)"/)?.[1] ?? '\u0000'))]
   const has = (pattern: RegExp) => pattern.test(head)
   const description = (meta.description ?? '').replace(/\s+/g, ' ').trim().slice(0, 200)
@@ -146,13 +175,14 @@ export function enhanceHead(
     if (site.url) tags.push(`<meta property="og:url" content="${escapeAttribute(site.url + meta.path)}">`)
   }
   if (site.url && !has(/<link[^>]+rel=["']canonical["']/i)) tags.push(`<link rel="canonical" href="${escapeAttribute(site.url + meta.path)}">`)
+  if (meta.noindex && !has(/<meta[^>]+name=["']robots["']/i)) tags.push('<meta name="robots" content="noindex, follow">')
   const icon = site.assets?.favicon
   if (icon && !has(/<link[^>]+rel=["'](?:shortcut )?icon["']/i)) tags.push(`<link rel="icon" href="${escapeAttribute(icon)}">`)
   const share = site.assets?.social
   if (share && site.url && !has(/<meta[^>]+property=["']og:image["']/i)) tags.push(`<meta property="og:image" content="${escapeAttribute(site.url + share)}">`)
   if (extra.themeColor && !has(/<meta[^>]+name=["']theme-color["']/i)) tags.push(`<meta name="theme-color" content="${escapeAttribute(extra.themeColor)}">`)
-  if (tags.length === 0) return html
-  return `${html.slice(0, close.index)}  ${tags.join('\n  ')}\n${html.slice(close.index)}`
+  if (tags.length === 0) return `${head}${html.slice(close.index)}`
+  return `${head}  ${tags.join('\n  ')}\n${html.slice(close.index)}`
 }
 
 /** The first words of what a page says, for its description. A long text is cut at a word. */

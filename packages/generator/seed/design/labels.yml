@@ -22,3 +22,42 @@ not_found_text:
 back_home:
   de: Zur Startseite
   en: Back to the front page
+search:
+  de: Suche
+  en: Search
+search_title:
+  de: Suche
+  en: Search
+search_label:
+  de: Suchbegriff
+  en: Search term
+search_placeholder:
+  de: Suchen …
+  en: Search …
+search_button:
+  de: Suchen
+  en: Search
+search_none:
+  de: Nichts gefunden. Versuche ein anderes Wort.
+  en: Nothing found. Try another word.
+search_count_one:
+  de: 1 Treffer
+  en: 1 result
+search_count_many:
+  de: "{count} Treffer"
+  en: "{count} results"
+search_failed:
+  de: Die Suche konnte nicht geladen werden.
+  en: The search could not be loaded.
+search_needs_script:
+  de: Die Suche braucht JavaScript.
+  en: The search needs JavaScript.
+search_kind_page:
+  de: Seite
+  en: Page
+search_kind_post:
+  de: Beitrag
+  en: Post
+search_kind_event:
+  de: Termin
+  en: Event
