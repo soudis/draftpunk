@@ -23,6 +23,8 @@ const SITE_WRITES = new Set([
   'import_pages',
   'copy_menu',
   'set_asset',
+  'set_picture_alt',
+  'describe_pictures',
 ])
 
 export function toolPartName(part: { type: string; toolName?: string }): string | undefined {
@@ -36,6 +38,7 @@ export function savedChange(part: { type: string; toolName?: string; state?: str
   if (typeof part.output === 'string' && part.output.trim()) {
     const first = part.output.trim().split('\n')[0]
     if (name === 'import_pages') return first.startsWith('No page was imported') ? null : first
+    if (name === 'describe_pictures') return first
     return part.output.trim()
   }
   return `Updated ${name.replaceAll('_', ' ')}.`

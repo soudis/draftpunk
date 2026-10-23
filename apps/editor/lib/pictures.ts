@@ -16,7 +16,12 @@ export type PictureRecord = {
   usages: number
 }
 
-type CatalogEntry = { file: string; description?: string; tags?: string[]; source?: string; fitWidth?: number; /** The web address the picture was taken from, so it is not fetched twice. */ origin?: string }
+type CatalogEntry = { file: string; description?: string; tags?: string[]; source?: string; fitWidth?: number; /** The web address the picture was taken from, so it is not fetched twice. */ origin?: string
+  /** What the picture shows, per language, for the alt text of a page. Without it the description is used. */
+  alt?: Record<string, string>
+  /** Only decoration: it keeps an empty alt text. */
+  decorative?: boolean
+}
 
 const EXTENSIONS: Record<PictureKind, string> = {
   jpeg: 'jpg',
@@ -168,6 +173,24 @@ export function updatePicture(
   return toRecord(next, { description, tags }, countUsages(root, next))
 }
 
+/** Pictures that a page shows and that have no words yet (no description, no alt text, not marked as decoration), the most used first. */
+export function picturesWithoutWords(root: string): PictureRecord[] {
+  const kept = new Map(readCatalog(root).map((entry) => [entry.file, entry]))
+  return listPictures(root)
+    .filter((picture) => {
+      const entry = kept.get(picture.file)
+      return picture.usages > 0 && !picture.description && !entry?.alt && !entry?.decorative && path.posix.extname(picture.file).toLowerCase() !== '.svg'
+    })
+    .sort((a, b) => b.usages - a.usages || a.file.localeCompare(b.file))
+}
+
+/** What a picture shows, in a few words. The tags stay as they are unless it has none. */
+export function setPictureDescription(root: string, file: string, description: string, tags: string[] = []): void {
+  const current = assertPictureFile(root, picturePath(file))
+  const prior = readCatalog(root).find((entry) => entry.file === current.file)
+  remember(root, current.file, normalizeDescription(description), prior?.tags?.length ? prior.tags : normalizeTags(tags), current.file)
+}
+
 export function readPicture(root: string, file: string): PictureRecord {
   const current = assertPictureFile(root, picturePath(file))
   return toRecord(current.file, catalogByFile(root).get(current.file), countUsages(root, current.file))
@@ -295,9 +318,11 @@ function writeCatalog(root: string, entries: CatalogEntry[]): void {
       const source = cleanSource(entry.source)
       const fitWidth = source && Number.isInteger(entry.fitWidth) && (entry.fitWidth ?? 0) > 0 ? entry.fitWidth : undefined
       const origin = typeof entry.origin === 'string' && /^https?:\/\/\S{1,500}$/.test(entry.origin) ? entry.origin : undefined
-      return { file: entry.file, description, tags, source: fitWidth ? source : undefined, fitWidth, origin }
+      const alt = cleanAlt(entry.alt)
+      const decorative = entry.decorative === true ? true : undefined
+      return { file: entry.file, description, tags, source: fitWidth ? source : undefined, fitWidth, origin, alt, decorative }
     })
-    .filter((entry) => entry.description || entry.tags.length > 0 || entry.source || entry.origin)
+    .filter((entry) => entry.description || entry.tags.length > 0 || entry.source || entry.origin || entry.alt || entry.decorative)
     .sort((a, b) => a.file.localeCompare(b.file))
   if (kept.length === 0) {
     fs.rmSync(catalogPath(root), { force: true })
@@ -327,14 +352,45 @@ function remember(root: string, file: string, description: string, tags: string[
     .map((entry) => (previous !== file && entry.source === previous ? { ...entry, source: file } : entry))
     .filter((entry) => entry.file !== previous && entry.file !== file)
   const prior = readCatalog(root).find((entry) => entry.file === previous)
-  catalog.push({ file, description, tags, source: prior?.source, fitWidth: prior?.fitWidth, origin: origin ?? prior?.origin })
+  catalog.push({ file, description, tags, source: prior?.source, fitWidth: prior?.fitWidth, origin: origin ?? prior?.origin, alt: prior?.alt, decorative: prior?.decorative })
   writeCatalog(root, catalog)
+}
+
+function cleanAlt(alt: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (!alt || typeof alt !== 'object') return undefined
+  const kept = Object.fromEntries(
+    Object.entries(alt)
+      .filter((pair): pair is [string, string] => typeof pair[1] === 'string')
+      .map(([lang, text]) => [lang, text.trim().replace(/\s+/g, ' ').slice(0, 200)] as [string, string])
+      .filter(([, text]) => text),
+  )
+  return Object.keys(kept).length > 0 ? kept : undefined
+}
+
+/** What a picture shows, for the alt text of every page that has it: per language, and whether it is only decoration. */
+export function setPictureAlt(root: string, file: string, input: { alt?: Record<string, string>; decorative?: boolean }): PictureRecord {
+  const current = assertPictureFile(root, picturePath(file))
+  const catalog = readCatalog(root)
+  const prior = catalog.find((entry) => entry.file === current.file)
+  const rest = catalog.filter((entry) => entry.file !== current.file)
+  rest.push({
+    file: current.file,
+    description: prior?.description ?? '',
+    tags: prior?.tags ?? [],
+    source: prior?.source,
+    fitWidth: prior?.fitWidth,
+    origin: prior?.origin,
+    alt: input.alt !== undefined ? cleanAlt({ ...(prior?.alt ?? {}), ...input.alt }) : prior?.alt,
+    decorative: input.decorative ?? prior?.decorative,
+  })
+  writeCatalog(root, rest)
+  return toRecord(current.file, catalogByFile(root).get(current.file), countUsages(root, current.file))
 }
 
 function rememberFit(root: string, file: string, source: string, fitWidth: number): void {
   const catalog = readCatalog(root).filter((entry) => entry.file !== file)
   const prior = readCatalog(root).find((entry) => entry.file === file)
-  catalog.push({ file, description: prior?.description ?? '', tags: prior?.tags ?? [], source, fitWidth })
+  catalog.push({ file, description: prior?.description ?? '', tags: prior?.tags ?? [], source, fitWidth, alt: prior?.alt, decorative: prior?.decorative })
   writeCatalog(root, catalog)
 }
 

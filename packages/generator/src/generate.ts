@@ -33,7 +33,7 @@ import {
   type SiteConfig,
 } from './model'
 import { listPageSlugs, pageHasLanguage, readPage, writePage, type PageFile } from './pages'
-import { describe, enhanceHead, enhancePictures, readPictureNotes, robotsTxt, sitemapXml, type PageMeta } from './baseline'
+import { describe, enhanceHead, enhancePictures, readPictureNotes, robotsTxt, sitemapXml, type MissingAlt, type PageMeta } from './baseline'
 import { searchIndexJson, searchText, type SearchEntry } from './search'
 import { atomFeed, breadcrumbLd, eventLds, organizationLd, postLd, websiteLd, type Json } from './structured'
 import { fingerprintStyles } from './finish'
@@ -46,6 +46,8 @@ export type GenerateResult = {
   pages: number
   events: number
   outDir: string
+  /** Pictures a page shows without saying what they show, with the pages that show them. */
+  missingAlt: { picture: string; pages: string[] }[]
 }
 
 type NavItem = { href: string; label: Record<Lang, string>; children?: NavItem[] }
@@ -122,9 +124,10 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
   const seoSite = { ...site, feeds }
   const modified: Record<string, string> = {}
   const sizes = new SizePlan(root)
+  const missing: MissingAlt = new Map()
   const notes = readPictureNotes(root)
   const put = (urlPath: string, html: string, meta: PageMeta) => {
-    writeHtml(outDir, urlPath, html, hints, (shown) => enhanceHead(enhancePictures(shown, root, { lang: meta.lang, notes, sizes }), meta, seoSite, { preload, themeColor }))
+    writeHtml(outDir, urlPath, html, hints, (shown) => enhanceHead(enhancePictures(shown, root, { lang: meta.lang, notes, sizes, page: meta.path, missing }), meta, seoSite, { preload, themeColor }))
     if (!meta.noindex) written.push(urlPath)
     if (meta.modified) modified[urlPath] = meta.modified
   }
@@ -271,7 +274,12 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
 
   sizes.write(outDir)
   fingerprintStyles(outDir)
-  return { pages: pageCount, events: events.length, outDir }
+  return {
+    pages: pageCount,
+    events: events.length,
+    outDir,
+    missingAlt: [...missing.entries()].map(([picture, shown]) => ({ picture, pages: [...shown].sort() })).sort((a, b) => b.pages.length - a.pages.length || a.picture.localeCompare(b.picture)),
+  }
 }
 
 export function replaceLayout(root: string, from: string, to: string): string[] {

@@ -22,8 +22,8 @@ import { replaceOnce } from './edit'
 import { slotDefAt, slotPath, valueAt, withValueAt } from './slot-edit'
 import { auditPage, pagePath, type ViewportName } from './page-audit'
 import { documentOpacityRefusal } from './page-opacity'
-import { suggestPicture } from './picture-vision'
-import { detectPicture, discardPicture, fitPicture, pictureByOrigin, readPicture, searchPictures, stemFromFilename, storePicture } from './pictures'
+import { pictureForVision, suggestPicture } from './picture-vision'
+import { detectPicture, discardPicture, fitPicture, pictureByOrigin, picturesWithoutWords, readPicture, readPictureBytes, searchPictures, setPictureAlt, setPictureDescription, stemFromFilename, storePicture } from './pictures'
 import { fetchPublicBytes, readWebsite } from './read-website'
 import { screenshotMarker, ScreenshotStore } from './screenshots'
 import { defineTool, fail } from './tool-kit'
@@ -40,6 +40,7 @@ import {
   designFilePath,
   forkLayout,
   formatCatalog,
+  checkSite,
   generate,
   labelNames,
   labelReferences,
@@ -580,6 +581,64 @@ export function contentTools(root: string, options: ToolOptions = {}): ToolSet {
         const picture = readPicture(root, file)
         discardPicture(root, picture.file)
         return finish(root, `Discarded ${picture.address}.`)
+      },
+    }),
+    set_picture_alt: defineTool('set_picture_alt', {
+      description:
+        'Say what a stored picture shows, for the alt text of every page that has it. alt is an object keyed by language id, such as {"de":"Der Hof im Sommer","en":"The courtyard in summer"}; a language without text uses the picture description. Set decorative true for a picture that is only decoration (a pattern, a divider): it keeps an empty alt text and is no longer reported.',
+      input: z.object({
+        file: z.string().describe('Required. Address or file name.'),
+        alt: z.record(z.string(), z.string()).optional().describe('Text per language id. Short: what the picture shows.'),
+        decorative: z.boolean().optional(),
+      }),
+      execute: ({ file, alt, decorative }) => {
+        const picture = setPictureAlt(root, file, { alt, decorative })
+        return finish(root, `${picture.address} now has ${decorative ? 'an empty alt text, as decoration' : 'alt text'}.`)
+      },
+    }),
+    describe_pictures: defineTool('describe_pictures', {
+      description:
+        'Look at stored pictures that a page shows and that have no words yet, and write a short description for each. It becomes their alt text. It looks at up to limit pictures a call (each costs one look by the model), the most used first, and says how many are left. Run it when check_site reports pictures with an empty alt text, and ask the person first when there are more than ten.',
+      input: z.object({ limit: z.number().int().min(1).max(10).optional().describe('How many pictures to look at in this call. Default 6.') }),
+      execute: async ({ limit }) => {
+        const waiting = picturesWithoutWords(root)
+        if (waiting.length === 0) return 'Every picture a page shows has words already.'
+        const batch = waiting.slice(0, limit ?? 6)
+        const done: string[] = []
+        const failed: string[] = []
+        let next = 0
+        const worker = async () => {
+          while (next < batch.length) {
+            const picture = batch[next++]
+            try {
+              const stored = readPictureBytes(root, picture.file)
+              const kind = detectPicture(stored.bytes)
+              if (!kind) throw new Error('not a picture')
+              const looked = await pictureForVision(stored.bytes, kind)
+              const suggested = await suggestPicture(looked.bytes, looked.kind, stemFromFilename(picture.file))
+              if (!suggested.description) throw new Error('no description')
+              setPictureDescription(root, picture.file, suggested.description, suggested.tags)
+              done.push(`${picture.address} — ${suggested.description}`)
+            } catch (error) {
+              failed.push(`${picture.address} (${error instanceof Error ? error.message : 'failed'})`)
+            }
+          }
+        }
+        await Promise.all([worker(), worker(), worker()])
+        const rest = waiting.length - batch.length
+        return finish(
+          root,
+          [`Described ${done.length} of ${batch.length} pictures:`, ...done.sort(), ...(failed.length > 0 ? ['Could not describe:', ...failed] : []), rest > 0 ? `${rest} more have no words. Call describe_pictures again.` : 'No picture is left without words.'].join('\n'),
+        )
+      },
+    }),
+    check_site: defineTool('check_site', {
+      description:
+        'Check the whole site, not one page: links and files that lead nowhere, pages without one main heading or a description, the same title on several pages, pages no other page links to, and pictures with an empty alt text. Run it after an import and before you say the work is done, and fix what it finds.',
+      input: z.object({}),
+      execute: () => {
+        const result = generate(root)
+        return checkSite(result.outDir, result.missingAlt)
       },
     }),
     set_homepage_news: defineTool('set_homepage_news', {

@@ -68,6 +68,8 @@ const MECHANICAL_TOOLS = new Set([
   'save_picture',
   'fit_picture',
   'discard_picture',
+  'set_picture_alt',
+  'describe_pictures',
 ])
 
 /** Whether the step that is about to run answers only the results of content-writing tools. */

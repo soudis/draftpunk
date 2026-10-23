@@ -125,7 +125,10 @@ export function altFor(notes: PictureNotes, address: string, lang: string): stri
   return text.length <= 140 ? text : `${text.slice(0, 140).replace(/\s+\S*$/, '')}…`
 }
 
-export type PictureOptions = { lang?: string; notes?: PictureNotes; sizes?: SizePlan }
+/** A picture that says nothing about itself is noted here, with the pages that show it. */
+export type MissingAlt = Map<string, Set<string>>
+
+export type PictureOptions = { lang?: string; notes?: PictureNotes; sizes?: SizePlan; page?: string; missing?: MissingAlt }
 
 /**
  * Pictures that load as the page needs them and keep their space. A picture in the header, and the first
@@ -153,12 +156,19 @@ export function enhancePictures(html: string, root: string, options: PictureOpti
     if (!ATTRIBUTE('data-transparent').test(next) && source && pictureIsTransparent(root, source)) add.push('data-transparent')
     // A picture says what it shows: the text the site keeps for it, when the page has none (or an empty one, as an import leaves it).
     const words = attribute(next, 'alt')
-    if (options.notes && source && (words === undefined || words.trim() === '') && !/\b(?:role\s*=\s*["']presentation["']|aria-hidden\s*=\s*["']true["'])/i.test(next)) {
+    const quiet = /\b(?:role\s*=\s*["']presentation["']|aria-hidden\s*=\s*["']true["'])/i.test(next)
+    let said = words !== undefined && words.trim() !== ''
+    if (options.notes && source && !said && !quiet) {
       const found = altFor(options.notes, source, options.lang ?? '')
       if (found) {
+        said = true
         if (words === undefined) add.push(`alt="${escapeAttribute(found)}"`)
         else next = next.replace(/(\salt\s*=\s*)(["'])\s*\2/i, (_whole, before: string) => `${before}"${escapeAttribute(found)}"`)
       }
+    }
+    if (options.missing && source && !said && !quiet && source.startsWith('/media/') && !options.notes?.get(source.split(/[?#]/)[0].replace(/^\/media\//, ''))?.decorative) {
+      const key = source.split(/[?#]/)[0]
+      options.missing.set(key, (options.missing.get(key) ?? new Set()).add(options.page ?? ''))
     }
     // Smaller copies for a screen that needs less, unless the design chose its own.
     const planned = source && !ATTRIBUTE('srcset').test(next) ? options.sizes?.plan(source, pictureSize(root, source)) : null

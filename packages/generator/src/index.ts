@@ -20,6 +20,7 @@ export function initSite(root: string): void {
 
 export { renderContent, designFilePath, assertSlug, writeYaml, readYaml } from './content'
 export { assetsCss, generate, pageOutputFile, pageUrl, replaceLayout, pageLayoutsOrThrow } from './generate'
+export { checkSite } from './check-site'
 export { lostContent, slotExpectations } from './preservation'
 export type { PageExpectation } from './preservation'
 export { applyContentCorrection } from './hints'

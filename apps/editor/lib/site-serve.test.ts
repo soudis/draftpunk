@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -117,4 +118,46 @@ test('the preview is never compressed or kept', () => {
   const response = serveGenerated(root, 'index.html', true, new Request('http://x.test/', { headers: { 'accept-encoding': 'gzip, br' } }))
   assert.equal(response.headers.get('content-encoding'), null)
   assert.equal(response.headers.get('cache-control'), 'no-cache')
+})
+
+test('a page has one address, a missing page shows the 404 page of its language, and a file carries its protections', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'schlor-address-'))
+  const script = "document.documentElement.classList.add('js');"
+  fs.mkdirSync(path.join(root, 'kontakt'))
+  fs.mkdirSync(path.join(root, 'en'))
+  fs.mkdirSync(path.join(root, 'assets'))
+  fs.mkdirSync(path.join(root, 'media', '_sizes'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'index.html'), '<p>home</p>')
+  fs.writeFileSync(path.join(root, 'kontakt', 'index.html'), `<script>${script}</script><script type="application/ld+json">{"a":1}</script><script src="/x.js"></script><p>Kontakt</p>`)
+  fs.writeFileSync(path.join(root, '404.html'), '<p>Seite nicht gefunden</p>')
+  fs.writeFileSync(path.join(root, 'en', '404.html'), '<p>Page not found</p>')
+  fs.writeFileSync(path.join(root, 'assets', 'styles.0123456789.css'), 'a{}')
+  fs.writeFileSync(path.join(root, 'media', '_sizes', 'hof-480-abcdef12.webp'), 'x')
+  const ask = (rel: string, url = `http://x.test/${rel}`) => serveGenerated(root, rel, false, new Request(url))
+
+  const bare = ask('kontakt', 'http://x.test/kontakt?a=1')
+  assert.equal(bare.status, 308)
+  assert.equal(bare.headers.get('location'), '/kontakt/?a=1')
+  assert.equal(ask('kontakt/index.html').status, 200)
+
+  const german = ask('gibts-nicht/index.html')
+  assert.equal(german.status, 404)
+  assert.match(await german.text(), /Seite nicht gefunden/)
+  const english = ask('en/gibts-nicht/index.html')
+  assert.equal(english.status, 404)
+  assert.match(await english.text(), /Page not found/)
+  const picture = ask('media/missing.jpg')
+  assert.equal(picture.status, 404)
+  assert.match(picture.headers.get('content-type') ?? '', /^text\/plain/)
+
+  const page = ask('kontakt/index.html')
+  assert.equal(page.headers.get('x-content-type-options'), 'nosniff')
+  assert.equal(page.headers.get('referrer-policy'), 'strict-origin-when-cross-origin')
+  const policy = page.headers.get('content-security-policy') ?? ''
+  assert.match(policy, /default-src 'self'/)
+  assert.ok(policy.includes(`'sha256-${crypto.createHash('sha256').update(script).digest('base64')}'`), 'the page script is named by its hash')
+  assert.equal(policy.includes('unsafe-inline') && /script-src[^;]*unsafe-inline/.test(policy), false)
+  assert.equal((policy.match(/sha256-/g) ?? []).length, 1, 'a data block and a script file are not scripts to allow')
+  assert.equal(ask('assets/styles.0123456789.css').headers.get('cache-control'), 'public, max-age=31536000, immutable')
+  assert.equal(ask('media/_sizes/hof-480-abcdef12.webp').headers.get('cache-control'), 'public, max-age=31536000, immutable')
 })

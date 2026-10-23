@@ -26,9 +26,9 @@ export async function suggestPicture(bytes: Uint8Array, kind: PictureKind, hint 
   if (!modelSettings.apiKey) throw new Error('LLM_API_KEY is not set')
   const instruction = [
     'Look at this picture and reply with JSON only:',
-    '{"name":"short-readable-words","description":"one German sentence for finding it later","tags":["word"]}',
+    '{"name":"short-readable-words","description":"what the picture shows, in one short German sentence","tags":["word"]}',
     'name is lowercase words with hyphens and no extension.',
-    'description is German. It is for finding the picture, and it is not shown on the website.',
+    'description is German and under 120 characters. It says what is in the picture in plain words, so that it can be read aloud as the alt text of the picture. Do not start with "Ein Bild von".',
     'tags are a few short words.',
     hint ? `The current filename hint is ${hint}.` : '',
   ]
@@ -58,4 +58,16 @@ function mediaType(kind: Exclude<PictureKind, 'svg'>): string {
   if (kind === 'webp') return 'image/webp'
   if (kind === 'gif') return 'image/gif'
   return 'image/jpeg'
+}
+
+/** A smaller copy for the model to look at: a picture of several megabytes would cost many times what it needs to. */
+export async function pictureForVision(bytes: Uint8Array, kind: PictureKind): Promise<{ bytes: Uint8Array; kind: PictureKind }> {
+  if (kind === 'svg' || bytes.byteLength < 400_000) return { bytes, kind }
+  try {
+    const { default: sharp } = await import('sharp')
+    const small = await sharp(bytes, { failOn: 'none' }).rotate().resize({ width: 1024, height: 1024, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 78 }).toBuffer()
+    return { bytes: new Uint8Array(small), kind: 'jpeg' }
+  } catch {
+    return { bytes, kind }
+  }
 }

@@ -32,6 +32,7 @@ import {
   writePage,
 } from './index'
 import sharp from 'sharp'
+import { checkSite } from './check-site'
 import { scopeLayoutCss } from './layouts'
 import { hasTransparency } from './baseline'
 import { searchIndexJson, searchText, textLimit } from './search'
@@ -889,7 +890,7 @@ test('a page tells search engines its way down, says something about itself, and
 test('a large picture is offered in smaller sizes, kept between runs, and says what it shows', async () => {
   const root = newSite('housing-sizes-')
   fs.mkdirSync(path.join(root, 'media'), { recursive: true })
-  const noise = (width: number, height: number) => sharp({ create: { width, height, channels: 3, noise: { type: 'gaussian' as const, mean: 128, sigma: 60 } } })
+  const noise = (width: number, height: number) => sharp({ create: { width, height, channels: 3, background: '#777', noise: { type: 'gaussian' as const, mean: 128, sigma: 60 } } })
   fs.writeFileSync(path.join(root, 'media', 'hof.jpg'), await noise(3000, 1500).jpeg({ quality: 90 }).toBuffer())
   fs.writeFileSync(path.join(root, 'media', 'mitte.jpg'), await noise(1400, 700).jpeg({ quality: 90 }).toBuffer())
   fs.writeFileSync(path.join(root, 'media', 'klein.png'), await sharp({ create: { width: 200, height: 100, channels: 3, background: '#335' } }).png().toBuffer())
@@ -933,4 +934,25 @@ test('a large picture is offered in smaller sizes, kept between runs, and says w
   const again = generate(root, path.join(root, 'again')).outDir
   assert.equal(fs.readdirSync(path.join(again, 'media', '_sizes')).length, files.length)
   assert.deepEqual(stamps(), first)
+})
+
+test('the whole site is checked for links that lead nowhere, lonely pages, repeated titles and pictures with no words', async () => {
+  const root = newSite('housing-check-')
+  fs.mkdirSync(path.join(root, 'media'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'media', 'hof.png'), await sharp({ create: { width: 64, height: 64, channels: 3, background: '#335' } }).png().toBuffer())
+  writePage(root, { slug: 'werkstatt', layout: 'article', title: { de: 'Werkstatt', en: 'Workshop' }, slots: { body: { de: 'Hier geht es zur [Küche](/kueche/) und zum [Dach](/dach/).\n\n![](/media/hof.png)', en: 'Kitchen.' } } })
+  writePage(root, { slug: 'dach', layout: 'article', title: { de: 'Werkstatt', en: 'Roof' }, slots: { body: { de: 'Das Dach.', en: 'The roof.' } } })
+  writePage(root, { slug: 'allein', layout: 'article', title: { de: 'Allein', en: 'Alone' }, slots: { body: { de: 'Niemand verlinkt mich.', en: 'Nobody links me.' } } })
+  const result = generate(root, path.join(root, 'out'))
+  assert.deepEqual(result.missingAlt, [{ picture: '/media/hof.png', pages: ['/werkstatt/'] }])
+  const report = checkSite(result.outDir, result.missingAlt)
+  assert.match(report, /Links and files that lead nowhere \(1\):\n- \/kueche\/ — on \/werkstatt\//)
+  assert.match(report, /The same title on several pages \(1\):\n- "Werkstatt · Housing project" — \/dach\/, \/werkstatt\//)
+  assert.match(report, /Pages no other page links to \(\d+\): [^\n]*\/allein\//)
+  assert.match(report, /Pictures that say nothing about themselves, with an empty alt text \(1\)[^\n]*\n- \/media\/hof\.png — on 1 page/)
+  // Once the picture says what it shows, and the dead link is gone, it is no longer reported.
+  fs.writeFileSync(path.join(root, 'media', 'pictures.yml'), '- file: hof.png\n  description: Der Hof\n')
+  const better = generate(root, path.join(root, 'out2'))
+  assert.deepEqual(better.missingAlt, [])
+  assert.doesNotMatch(checkSite(better.outDir, better.missingAlt), /Pictures that say nothing/)
 })
