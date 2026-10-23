@@ -29,6 +29,8 @@ const SITE_WRITES = new Set([
   'svg_extract',
   'svg_edit',
   'write_svg',
+  'trace_picture',
+  'render_graphic',
 ])
 
 export function toolPartName(part: { type: string; toolName?: string }): string | undefined {

@@ -83,7 +83,7 @@ export function repairToolInput(toolCall: ToolCallInput): ToolCallInput | null {
   return { ...toolCall, input: JSON.stringify({ [INVALID_JSON]: true }) }
 }
 
-export const SCREENSHOT_TOOLS = new Set(['preview_page', 'look_at_picture', 'edit_picture', 'svg_extract', 'svg_edit', 'write_svg'])
+export const SCREENSHOT_TOOLS = new Set(['preview_page', 'look_at_picture', 'edit_picture', 'svg_extract', 'svg_edit', 'write_svg', 'trace_picture', 'render_graphic'])
 
 /**
  * A tool result can only carry text to the model. A picture from preview_page, or from a tool that edits or draws a picture, is put in front of it

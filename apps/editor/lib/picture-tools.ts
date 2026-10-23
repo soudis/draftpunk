@@ -1,6 +1,9 @@
 import type { ToolSet } from 'ai'
 import { z } from 'zod'
 import { editSvg, extractSvg, fitSvg, generate, outlineSvg } from '@schlor/generator'
+import { browserConfigured } from './browser'
+import { MAX_HTML, renderGraphic } from './graphic'
+import { potraceAvailable, tracePicture } from './picture-trace'
 import { editRaster, OPERATIONS, pictureForModel, visibleBounds, type PictureOp } from './picture-edit'
 import { detectPicture, noteMadeFrom, readPicture, readPictureBytes, stemFromFilename, storePicture, type PictureKind, type PictureRecord } from './pictures'
 import { screenshotMarker, ScreenshotStore } from './screenshots'
@@ -202,6 +205,59 @@ export function pictureTools(root: string, options: ToolOptions = {}): ToolSet {
         return `Saved ${saved.address}. ${shown.line}${cleaned}${text}${shown.marker}`
       },
     }),
+    trace_picture: defineTool('trace_picture', {
+      description:
+        'Turn a stored picture into an SVG of flat shapes and save it as a new picture; the original stays. Good for a logo, an icon, a signature or a drawing that has to stay sharp at any size; a photograph traces into a mess. mode silhouette (default) makes one shape in one colour: the dark part of the picture, or, when the picture has see-through parts, its outline (details inside the outline are lost: for a logo with windows or lettering use mode colors). color is the shape colour, #rrggbb, or auto for the picture\'s own. threshold (1 to 99, default 50) is how dark counts as ink; invert traces the light part instead. mode colors makes up to 6 flat colours (colors 2 to 6), layer over layer, and drops the background colour unless keep_background is true. despeckle (pixels, default 4) drops specks; smooth (0 to 1.3, default 1) rounds corners, 0 keeps them sharp. You see the result in the next step: if it is rough, trace again with another threshold or despeckle.',
+      input: z.object({
+        file: z.string().describe('Required. Address or file name of the picture to trace.'),
+        mode: z.enum(['silhouette', 'colors']).optional(),
+        threshold: z.number().optional().describe('Optional. silhouette: 1 to 99.'),
+        color: z.string().optional().describe('Optional. silhouette: #rrggbb or auto.'),
+        colors: z.number().int().optional().describe('Optional. colors: 2 to 6.'),
+        despeckle: z.number().optional().describe('Optional. Specks up to this many pixels are dropped.'),
+        smooth: z.number().optional().describe('Optional. 0 to 1.34.'),
+        invert: z.boolean().optional().describe('Optional. Trace the light part.'),
+        keep_background: z.boolean().optional().describe('Optional. colors: keep the background colour as a shape.'),
+        name: z.string().optional().describe('Optional. A name for the new SVG. Default the old name and -trace.'),
+        replace: z.boolean().optional().describe('Optional. Overwrite a picture of that name. Only when the person asks.'),
+        description: z.string().optional().describe('Optional. What the new picture shows, in a few words.'),
+      }),
+      execute: async ({ file, mode, threshold, color, colors, despeckle, smooth, invert, keep_background, name, replace, description }) => {
+        if (!(await potraceAvailable())) fail('potrace is not installed here, so tracing is not available. The Docker image has it.')
+        const { record, bytes, kind } = open(file)
+        const traced = await tracePicture(bytes, kind, { mode, threshold, color, colors, despeckle, smooth, invert, keepBackground: keep_background })
+        const out = new TextEncoder().encode(traced.svg)
+        const saved = keep(out, nameFor(record, name, 'trace'), replace, description, record)
+        const shown = await show(out, 'svg', false)
+        const heavy = traced.bytes > 150_000 ? ' It is large: raise despeckle, lower colors, or trace a simpler picture.' : ''
+        return `Saved ${saved.address}, traced from ${record.address}: ${traced.paths} paths in ${traced.layers} ${traced.layers === 1 ? 'layer' : 'layers'}, ${Math.max(1, Math.round(traced.bytes / 1000))} KB, colours ${traced.colors.join(', ')}.${heavy}${traced.hint ? ` ${traced.hint}` : ''} ${shown.line}${shown.marker}`
+      },
+    }),
+    ...(browserConfigured()
+      ? {
+          render_graphic: defineTool('render_graphic', {
+            description: `Make a picture from HTML and CSS and save it as a picture of the site: a share card, a banner, a poster, words over a picture, a badge. A browser draws it on a canvas of width × height CSS pixels. The page has the site's fonts (use font-family: var(--font-serif) or the family name from fonts.yml) and colours as CSS variables with the token names: var(--color-primary), var(--color-page), var(--color-on-primary), var(--radius-card). The site's pictures are at /media/…, such as <img src="/media/hof.jpg">. Nothing else loads: no script runs, and no picture, font or stylesheet from another address. Give the elements sizes in px and position: absolute where it helps, so that nothing overflows the canvas. html is the body content, or a whole document. Leave the background alone unless you want one; transparent true keeps the canvas see-through (PNG or WebP). scale 2 makes a sharper picture at twice the pixels. You see the result in the next step: check that the text fits and reads well, and draw it again if not. At most ${MAX_HTML / 1000} KB of HTML, 4096 px on a side.`,
+            input: z.object({
+              html: z.string().describe('Required. The HTML, with its CSS in a <style> element or style attributes.'),
+              width: z.number().int().describe('Required. Canvas width in CSS pixels, at least 16.'),
+              height: z.number().int().describe('Required. Canvas height in CSS pixels, at least 16.'),
+              name: z.string().describe('Required. A name for the picture, in lowercase words with hyphens.'),
+              scale: z.number().int().optional().describe('Optional. 1 (default) or 2.'),
+              format: z.enum(['png', 'jpeg', 'webp']).optional().describe('Optional. png (default), jpeg or webp.'),
+              transparent: z.boolean().optional().describe('Optional. Keep the canvas see-through.'),
+              description: z.string().optional().describe('Optional. What the picture shows, in a few words (it becomes its alt text). Say what its text says.'),
+              replace: z.boolean().optional().describe('Optional. Overwrite a picture of that name. Only when the person asks.'),
+            }),
+            execute: async ({ html, width, height, name, scale, format, transparent, description, replace }) => {
+              const drawn = await renderGraphic(root, { html, width, height, scale, format, transparent })
+              const saved = storePicture(root, { bytes: drawn.bytes, filename: stemFromFilename(name), replace: replace === true, description: description ?? '' })
+              generate(root)
+              const shown = await show(drawn.bytes, drawn.format, false)
+              return `Saved ${saved.address}. ${shown.line}${shown.marker}`
+            },
+          }),
+        }
+      : {}),
   }
 }
 

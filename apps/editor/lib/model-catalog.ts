@@ -101,6 +101,12 @@ export const MODEL_PROVIDERS: ModelProvider[] = [
     baseURL: 'https://api.deepseek.com',
     models: ['deepseek-flash', 'deepseek-v4-pro'],
   },
+  {
+    // One key for many models, by Runware's own ids (provider:model@variant). Its chat endpoint follows the OpenAI format.
+    name: 'Runware',
+    baseURL: 'https://api.runware.ai/v1',
+    models: ['deepseek:v4@flash', 'google:gemini@3.1-pro', 'anthropic:claude@opus-4.7', 'openai:gpt@5.5', 'xai:grok@4.3', 'minimax:m2.7@0'],
+  },
 ]
 
 export type ModelChoice = {

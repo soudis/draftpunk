@@ -5,15 +5,19 @@ import {
   addressSuggestions,
   modelAfterProviderPick,
   modelSuggestions,
+  modelSupportsVision,
   providerForBase,
 } from './model-catalog'
 
 test('an empty address offers the common providers, and a typed fragment narrows them', () => {
   const names = addressSuggestions('').map((provider) => provider.name)
-  assert.deepEqual(names, ['OpenAI', 'Google Gemini', 'Anthropic', 'Z.AI', 'Kimi', 'DeepSeek'])
+  assert.deepEqual(names, ['OpenAI', 'Google Gemini', 'Anthropic', 'Z.AI', 'Kimi', 'DeepSeek', 'Runware'])
   assert.equal(addressSuggestions('kimi')[0]?.baseURL, 'https://api.moonshot.ai/v1')
   assert.equal(addressSuggestions('https://api.openai.com/v1/').length, names.length)
   assert.equal(providerForBase('https://api.z.ai/api/paas/v4/')?.name, 'Z.AI')
+  assert.equal(providerForBase('https://api.runware.ai/v1')?.models[0], 'deepseek:v4@flash')
+  assert.equal(modelSupportsVision('https://api.runware.ai/v1', 'google:gemini@3.1-pro'), false, 'not documented, so off unless asked for')
+  assert.equal(modelSupportsVision('https://api.runware.ai/v1', 'google:gemini@3.1-pro', '1'), true)
 })
 
 test('model suggestions follow the address and a provider pick keeps a matching model', () => {
