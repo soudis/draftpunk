@@ -160,3 +160,11 @@ _Avoid_: thumbnail (that is the library's small view), resized image
 A look at the whole generated site for what is wrong between pages: links that lead nowhere, repeated titles, pages nothing links to, pictures without alt text.
 _Avoid_: audit (that is one page in a browser)
 
+**Image service**:
+An outside service, set up once in the editor, that makes new pictures from a description. Without one the agent can still edit, draw and trace pictures, but it cannot make a photograph or an illustration.
+_Avoid_: AI, generator (that is the program that makes the site)
+
+**Trace**:
+Turning a picture into an SVG of flat shapes, such as a logo kept sharp at any size.
+_Avoid_: vectorize, convert
+
