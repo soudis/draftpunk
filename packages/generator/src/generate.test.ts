@@ -31,6 +31,7 @@ import {
   writePage,
 } from './index'
 import { scopeLayoutCss } from './layouts'
+import { hasTransparency } from './baseline'
 import { fontFaceCss, fontPreloadLinks, parseFonts, readFonts } from './fonts'
 import { contrastRatio, contrastWarnings, nearestColor, parseTokens, tokenSummary } from './tokens'
 
@@ -615,4 +616,55 @@ test('a setup keeps the site pictures when it rewrites the site, and takes new o
   assert.deepEqual(readSiteConfig(root).assets, { logo: '/media/logo.png', favicon: '/media/icon.png' })
   assert.deepEqual(recordProposal(root, { site: { assets: { logo: '/media/nirgends.png' } } }).length, 1)
   assert.throws(() => applyProposal(root, { site: { assets: { logo: '/media/nirgends.png' } } }), /not in this site/)
+})
+
+function png(colorType: number, extra: Buffer[] = []): Buffer {
+  const chunk = (type: string, data: Buffer) => Buffer.concat([Buffer.from([0, 0, 0, data.length]), Buffer.from(type, 'latin1'), data, Buffer.alloc(4)])
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(40, 0)
+  header.writeUInt32BE(20, 4)
+  header[8] = 8
+  header[9] = colorType
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', header), ...extra, chunk('IDAT', Buffer.from([1, 2, 3]))])
+}
+
+test('a picture that can be see-through is told apart from one that cannot', () => {
+  assert.equal(hasTransparency(png(2)), false)
+  assert.equal(hasTransparency(png(6)), true)
+  assert.equal(hasTransparency(png(4)), true)
+  const chunk = Buffer.concat([Buffer.from([0, 0, 0, 1]), Buffer.from('tRNS', 'latin1'), Buffer.from([0]), Buffer.alloc(4)])
+  assert.equal(hasTransparency(png(3, [chunk])), true)
+  assert.equal(hasTransparency(png(3)), false)
+  const webp = (kind: string, flagsAt: number, flag: number) => {
+    const bytes = Buffer.alloc(40)
+    bytes.write('RIFF', 0, 'latin1')
+    bytes.write('WEBP', 8, 'latin1')
+    bytes.write(kind, 12, 'latin1')
+    bytes[flagsAt] = flag
+    return bytes
+  }
+  assert.equal(hasTransparency(webp('VP8X', 20, 0x10)), true)
+  assert.equal(hasTransparency(webp('VP8X', 20, 0x00)), false)
+  assert.equal(hasTransparency(webp('VP8L', 24, 0x10)), true)
+  assert.equal(hasTransparency(webp('VP8L', 24, 0x00)), false)
+  assert.equal(hasTransparency(webp('VP8 ', 24, 0xff)), false)
+  assert.equal(hasTransparency(Buffer.from('GIF89a......')), true)
+  assert.equal(hasTransparency(Buffer.from('<?xml version="1.0"?>\n<!-- logo --><svg xmlns="http://www.w3.org/2000/svg"></svg>')), true)
+  assert.equal(hasTransparency(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16])), false)
+  assert.equal(hasTransparency(Buffer.from('plain text')), false)
+})
+
+test('a logo with see-through parts is marked, and the starter keeps its loading color off it', () => {
+  const root = newSite('housing-transparent-')
+  fs.writeFileSync(path.join(root, 'media', 'logo.png'), png(6))
+  fs.writeFileSync(path.join(root, 'media', 'foto.png'), png(2))
+  const file = path.join(root, 'design', 'site.yml')
+  fs.writeFileSync(file, `${fs.readFileSync(file, 'utf8')}\nassets:\n  logo: /media/logo.png\n`)
+  const page = path.join(root, 'content', 'pages', 'kontakt.yml')
+  const result = generate(root)
+  const home = fs.readFileSync(path.join(result.outDir, 'index.html'), 'utf8')
+  assert.match(home, /<img[^>]+src="\/media\/logo\.png"[^>]*data-transparent/)
+  assert.equal(fs.existsSync(page), true)
+  const css = fs.readFileSync(path.join(result.outDir, 'assets', 'styles.css'), 'utf8')
+  assert.match(css, /img:not\(\[data-transparent\]\)/)
 })

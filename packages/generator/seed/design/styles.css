@@ -28,8 +28,9 @@
 }
 
 /* Baseline: what every page gets. */
-img {
-  /* A calm block while a picture loads, so the page does not flash white and nothing jumps. */
+img:not([data-transparent]) {
+  /* A calm block while a picture loads, so the page does not flash white and nothing jumps.
+     Not behind a picture that can be see-through (a logo): the block would show through it. */
   background-color: var(--color-surface);
 }
 :focus-visible {

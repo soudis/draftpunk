@@ -37,6 +37,54 @@ export function pictureSize(root: string, address: string): { width: number; hei
   return size
 }
 
+/** Whether a picture can have see-through parts: a PNG or WebP with an alpha channel or a transparent colour, a GIF, an SVG. A JPEG never does. */
+export function hasTransparency(bytes: Uint8Array): boolean {
+  const b = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  if (b.length > 33 && b.readUInt32BE(0) === 0x89504e47) {
+    if (b[25] === 4 || b[25] === 6) return true
+    for (let at = 8; at + 12 <= b.length; ) {
+      const type = b.toString('latin1', at + 4, at + 8)
+      if (type === 'tRNS') return true
+      if (type === 'IDAT' || type === 'IEND') return false
+      at += 12 + b.readUInt32BE(at)
+    }
+    return false
+  }
+  if (b.length > 25 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP') {
+    const kind = b.toString('latin1', 12, 16)
+    if (kind === 'VP8X') return (b[20] & 0x10) !== 0
+    if (kind === 'VP8L') return ((b[24] >> 4) & 1) === 1
+    return false
+  }
+  if (b.toString('latin1', 0, 3) === 'GIF') return true
+  return /^\s*(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<svg\b/i.test(b.toString('utf8', 0, Math.min(b.length, 1024)))
+}
+
+const transparency = new Map<string, boolean>()
+
+/** Whether a picture stored in the site can have see-through parts. Kept by file and time. */
+export function pictureIsTransparent(root: string, address: string): boolean {
+  const clean = address.split(/[?#]/)[0]
+  if (!clean.startsWith('/media/') || clean.includes('..')) return false
+  const file = path.join(root, clean.slice(1))
+  let key: string
+  try {
+    key = `${file}:${fs.statSync(file).mtimeMs}`
+  } catch {
+    return false
+  }
+  const known = transparency.get(key)
+  if (known !== undefined) return known
+  let found = false
+  try {
+    found = hasTransparency(fs.readFileSync(file))
+  } catch {
+    found = false
+  }
+  transparency.set(key, found)
+  return found
+}
+
 /**
  * Pictures that load as the page needs them and keep their space. A picture in the header, and the first
  * one after it, stay eager: they are on the first screen. An attribute the design wrote is left as it is.
@@ -58,6 +106,9 @@ export function enhancePictures(html: string, root: string): string {
       const size = src ? pictureSize(root, src) : null
       if (size) add.push(`width="${size.width}"`, `height="${size.height}"`)
     }
+    // The starter puts a calm color behind a picture while it loads; behind a logo with see-through parts it would be a box.
+    const source = attribute(next, 'src')
+    if (!ATTRIBUTE('data-transparent').test(next) && source && pictureIsTransparent(root, source)) add.push('data-transparent')
     if (add.length === 0) return next
     next = next.replace(/\s*\/?>$/, (end) => ` ${add.join(' ')}${end.trim() === '/>' ? ' />' : '>'}`)
     return next
