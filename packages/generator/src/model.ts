@@ -15,6 +15,23 @@ export type SiteConfig = {
   url?: string
   timezone: string
   languages: SiteLanguage[]
+  /** Pictures that belong to the whole site, by name: logo, favicon, social. Each is an address under /media/. */
+  assets: Record<string, string>
+}
+
+export const ASSET_NAME = /^[a-z][a-z0-9-]{0,30}$/
+export const ASSET_ADDRESS = /^\/media\/[^\s"'()<>]+$/
+
+/** Why a set of site pictures cannot be used: a name that is not a word, an address outside /media/, or a picture that is not in the site. */
+export function assetProblems(root: string, assets: Record<string, unknown>): string[] {
+  const problems: string[] = []
+  for (const [name, value] of Object.entries(assets)) {
+    const address = String(value ?? '').trim()
+    if (!ASSET_NAME.test(name)) problems.push(`assets.${name}: the name must be lowercase words with dashes, such as logo or hero-pattern`)
+    else if (!ASSET_ADDRESS.test(address)) problems.push(`assets.${name}: ${address || 'empty'} is not a picture address such as /media/logo.png`)
+    else if (!fs.existsSync(path.join(root, address.replace(/^\//, '')))) problems.push(`assets.${name}: ${address} is not in this site. Save the picture with save_picture first.`)
+  }
+  return problems
 }
 
 export type FieldOption = {
@@ -56,6 +73,7 @@ export function readSiteConfig(root: string): SiteConfig {
     url?: string
     timezone?: string
     languages?: { id?: string; label?: string; optional?: boolean }[]
+    assets?: Record<string, unknown>
   }>(path.join(root, 'design', 'site.yml'), {})
   const languages = (raw.languages ?? [])
     .map((lang) => ({
@@ -77,6 +95,11 @@ export function readSiteConfig(root: string): SiteConfig {
     id: SITE_ID.test(requested) ? requested : SITE_ID.test(fromDir) ? fromDir : 'site',
     timezone: validTimeZone(String(raw.timezone ?? '').trim() || 'Europe/Vienna'),
     languages: chosen,
+    assets: Object.fromEntries(
+      Object.entries(raw.assets && typeof raw.assets === 'object' ? raw.assets : {})
+        .map(([name, value]) => [name, String(value ?? '').trim()] as const)
+        .filter(([name, value]) => ASSET_NAME.test(name) && ASSET_ADDRESS.test(value)),
+    ),
   }
 }
 

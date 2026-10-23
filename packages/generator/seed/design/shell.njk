@@ -13,7 +13,9 @@
   <a class="skip-link" href="#main">{{ labels.skip }}</a>
   <header class="border-b border-border">
     <div class="mx-auto flex max-w-content flex-wrap items-center justify-between gap-4 px-6 py-4">
-      <a class="font-serif text-2xl text-heading" href="{{ prefix }}/">{{ name }}</a>
+      <a class="font-serif text-2xl text-heading" href="{{ prefix }}/">
+        {% if assets.logo %}<img class="h-10 w-auto md:h-12" src="{{ assets.logo }}" alt="{{ name }}">{% else %}{{ name }}{% endif %}
+      </a>
       <input type="checkbox" id="menu-toggle" class="peer sr-only">
       <label for="menu-toggle" class="cursor-pointer border border-border px-3 py-1 text-sm uppercase tracking-wide md:hidden">{{ labels.menu }}</label>
       <nav aria-label="{{ labels.menu }}" class="hidden w-full flex-col gap-3 text-sm uppercase tracking-wide peer-checked:flex md:flex md:w-auto md:flex-row md:flex-wrap md:items-start md:gap-x-6 md:gap-y-2">

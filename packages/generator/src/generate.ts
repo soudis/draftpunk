@@ -70,6 +70,7 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
   const designDir = path.join(root, 'design')
   const site = readSiteConfig(root)
   const env = nunjucks.configure([designDir], { autoescape: true, noCache: true, throwOnUndefined: false })
+  env.addGlobal('assets', site.assets)
   env.addFilter('plain', (value: unknown) => (typeof value === 'string' ? plainContent(value) : value))
   env.addFilter('formatDay', (iso: string, lang: Lang) => {
     const date = new Date(iso)
@@ -87,7 +88,7 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
   fs.mkdirSync(outDir, { recursive: true })
   copyMedia(path.join(root, 'media'), path.join(outDir, 'media'))
   const faces = readFonts(root)
-  buildCss(designDir, path.join(outDir, 'assets', 'styles.css'), fontFaceCss(faces))
+  buildCss(designDir, path.join(outDir, 'assets', 'styles.css'), `${fontFaceCss(faces)}\n${assetsCss(site.assets)}`)
 
   const navFile = readYaml<NavFile | NavItem[]>(path.join(designDir, 'nav.yml'), [])
   const menu = Array.isArray(navFile) ? navFile : (navFile.menu ?? [])
@@ -604,6 +605,12 @@ function copyMedia(from: string, to: string): void {
     if (entry.isDirectory()) copyMedia(src, dest)
     else if (entry.isFile()) fs.copyFileSync(src, dest)
   }
+}
+
+/** The site's pictures as custom properties, so a stylesheet can use one (background-image: var(--asset-pattern)) without holding an address. */
+export function assetsCss(assets: Record<string, string>): string {
+  const lines = Object.entries(assets).map(([name, address]) => `  --asset-${name}: url("${address}");`)
+  return lines.length === 0 ? '' : `:root {\n${lines.join('\n')}\n}`
 }
 
 function buildCss(designDir: string, outFile: string, fontCss = ''): void {

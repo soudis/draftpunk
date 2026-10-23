@@ -27,7 +27,7 @@ export const TEXT_SOURCE = `(() => {
   const inline = (node) => {
     let out = ''
     for (const child of node.childNodes) {
-      if (child.nodeType === 3) { out += child.textContent.replace(/\\s+/g, ' '); continue }
+      if (child.nodeType === 3) { out += child.textContent.replace(/\\s+/g, ' ').replace(/([\\\\*_])/g, '\\\\$1'); continue }
       if (child.nodeType !== 1) continue
       const el = child
       if (el.matches(SKIP) || !shown(el)) continue

@@ -155,3 +155,40 @@ test('pages of the first pass, which have names of their own, are found by their
   assert.equal(resolve('/ueber-uns/finanzierung', 'Finanzierung'), null)
   assert.equal(resolve('/nirgends'), null)
 })
+
+test('the generated calendar and news pages are found by their address or their words', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'schlor-resolve-generated-'))
+  initSite(root)
+  const resolve = resolverFor(root)
+  assert.equal(resolve('/kalender', 'Kalender'), '/kalender/')
+  assert.equal(resolve('/irgendwo/termine', 'Calendar'), '/kalender/')
+  assert.equal(resolve('/aktuelles', 'Aktuelles'), '/blog/')
+  assert.equal(resolve('/blog'), '/blog/')
+  assert.equal(resolve('/unbekannt', 'Anderes'), null)
+})
+
+test('copy_menu follows a redirect of a menu entry to the page that was imported', { skip: CHROME ? false : 'no Chrome on this machine' }, async () => {
+  process.env.BROWSER_PATH = CHROME
+  process.env.BROWSER_NO_SANDBOX = '1'
+  try {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'schlor-copy-menu-redirect-'))
+    initSite(root)
+    writeYaml(path.join(root, 'design', 'site.yml'), { name: 'Neu', languages: [{ id: 'de', label: 'Deutsch' }] })
+    writePage(root, { slug: 'bauphasen-seite', layout: 'article', title: { de: 'Der Bau' }, slots: { body: { de: 'Bau.' } } })
+    writeYaml(path.join(root, 'content', 'sources.yml'), { source: origin, pages: { '/bauphasen': 'bauphasen-seite' }, pictures: {}, aliases: {} })
+    const html = `<!doctype html><html><head><title>Alt</title></head><body><header><nav><ul><li><a href="/home/bauphasen/">Die Bauphasen</a></li><li><a href="/home/nirgends/">Nirgends</a></li></ul></nav></header><main><h1>Alt</h1><p>Ein Satz.</p></main></body></html>`
+    const fetchPage = async (url: string) => {
+      const pathname = new URL(url).pathname
+      if (pathname === '/home/bauphasen/') return new Response(null, { status: 301, headers: { location: '/bauphasen/' } })
+      return new Response(html, { status: 200, headers: { 'content-type': 'text/html' } })
+    }
+    const tools = toolsFor('edit', root, { fetchPage })
+    const result = String(await tools.copy_menu.execute!({ source: origin }, call))
+    assert.match(result, /- Die Bauphasen → \/bauphasen-seite\//)
+    assert.match(result, /Left out, no page on this site: .*Nirgends/)
+  } finally {
+    await closeBrowser()
+    delete process.env.BROWSER_PATH
+    delete process.env.BROWSER_NO_SANDBOX
+  }
+})

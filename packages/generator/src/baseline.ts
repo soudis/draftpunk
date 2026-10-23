@@ -78,7 +78,7 @@ const LOCALE: Record<string, string> = { de: 'de_AT', en: 'en_GB', fr: 'fr_FR', 
 export function enhanceHead(
   html: string,
   meta: PageMeta,
-  site: { name: string; url?: string },
+  site: { name: string; url?: string; assets?: Record<string, string> },
   extra: { preload: string[]; themeColor?: string },
 ): string {
   const close = /<\/head>/i.exec(html)
@@ -95,6 +95,10 @@ export function enhanceHead(
     if (site.url) tags.push(`<meta property="og:url" content="${escapeAttribute(site.url + meta.path)}">`)
   }
   if (site.url && !has(/<link[^>]+rel=["']canonical["']/i)) tags.push(`<link rel="canonical" href="${escapeAttribute(site.url + meta.path)}">`)
+  const icon = site.assets?.favicon
+  if (icon && !has(/<link[^>]+rel=["'](?:shortcut )?icon["']/i)) tags.push(`<link rel="icon" href="${escapeAttribute(icon)}">`)
+  const share = site.assets?.social
+  if (share && site.url && !has(/<meta[^>]+property=["']og:image["']/i)) tags.push(`<meta property="og:image" content="${escapeAttribute(site.url + share)}">`)
   if (extra.themeColor && !has(/<meta[^>]+name=["']theme-color["']/i)) tags.push(`<meta name="theme-color" content="${escapeAttribute(extra.themeColor)}">`)
   if (tags.length === 0) return html
   return `${html.slice(0, close.index)}  ${tags.join('\n  ')}\n${html.slice(close.index)}`

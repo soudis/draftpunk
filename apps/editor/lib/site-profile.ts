@@ -34,6 +34,9 @@ export type RawProfile = {
   sectionGap: number
   nav: { links: { text: string; href: string }[]; dropdowns: boolean; logo: string }
   heroImage: string
+  /** The address of the page's icon and of the picture shown when it is shared, if it names them. */
+  icon?: string
+  share?: string
   sections: RawSection[]
 }
 
@@ -188,6 +191,8 @@ export const PROFILE_SOURCE = `(() => {
     shadows: cards > 2 && shadowed / cards > 0.4, contentWidth: maxWidths.size > 0 ? mode(maxWidths, 0) : widths.length ? widths[Math.floor(widths.length / 2)] : 0, sectionGap: pads.length ? Math.round(pads[Math.floor(pads.length / 2)]) : 0,
     nav: { links: nav ? [...nav.querySelectorAll('a')].filter(visible).slice(0, 12).map((a) => ({ text: a.textContent.trim().replace(/\\s+/g, ' ').slice(0, 24), href: a.href })).filter((l) => l.text) : [], dropdowns: nav ? !!nav.querySelector('ul ul, [aria-haspopup], details, [class*=dropdown i], [class*=sub-menu i]') : false, logo: logo ? (logo.currentSrc || logo.src) : '' },
     heroImage: heroImg ? (heroImg.currentSrc || heroImg.src) : '',
+    icon: (() => { const l = document.querySelector('link[rel~="icon"][href], link[rel="apple-touch-icon"][href]'); return l ? l.href : '' })(),
+    share: (() => { const m = document.querySelector('meta[property="og:image"][content]'); return m ? new URL(m.content, location.href).href : '' })(),
     sections: sections.slice(0, 14),
   }
 })()`
@@ -246,6 +251,8 @@ export function formatProfile(url: string, raw: RawProfile, viewportHeight = 800
   if (raw.nav.links.length > 0) {
     lines.push(`Menu: ${raw.nav.links.map((link) => link.text).join(' · ')}${raw.nav.dropdowns ? ' (with drop-down menus)' : ''}.${raw.nav.logo ? ` Logo: ${raw.nav.logo}` : ''}`)
   }
+  const pictures = [raw.nav.logo ? `logo ${raw.nav.logo}` : '', raw.icon ? `icon ${raw.icon}` : '', raw.share ? `share picture ${raw.share}` : ''].filter(Boolean)
+  if (pictures.length > 0) lines.push(`Site pictures (take them with save_picture and give them to the site with set_asset): ${pictures.join('; ')}.`)
   if (raw.heroImage) lines.push(`Main picture: ${raw.heroImage}`)
   const sectionKinds = kinds(raw.sections, raw.pageBg, viewportHeight)
   lines.push(raw.sections.length >= 14 ? 'Page, top to bottom (the first 14 sections):' : 'Page, top to bottom:')

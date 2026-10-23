@@ -7,7 +7,7 @@ import { GENERATED_LAYOUTS, labelReferences, layoutExists, listLayoutNames, page
 import { checkPage, dropOtherLanguages, listPageSlugs, readPage, writePage } from './pages'
 import { parse, stringify } from 'yaml'
 import { parseTokens } from './tokens'
-import { labelNames, parseLabels, readEventFields, readSiteConfig, readYamlFile, writeYamlFile, type SiteLanguage } from './model'
+import { assetProblems, labelNames, parseLabels, readEventFields, readSiteConfig, readYamlFile, writeYamlFile, type SiteLanguage } from './model'
 
 export type SetupProposal = {
   site?: {
@@ -16,6 +16,8 @@ export type SetupProposal = {
     timezone?: string
     url?: string
     languages?: { id: string; label?: string; optional?: boolean }[]
+    /** Pictures of the whole site by name (logo, favicon, social), as addresses under /media/. */
+    assets?: Record<string, string>
   }
   layouts?: { name: string; purpose: string; slots?: unknown; template: string; style?: string }[]
   dropLayouts?: string[]
@@ -50,7 +52,7 @@ export function readProposal(root: string): SetupProposal {
 const GENERATED_NOTE = 'event, calendar, archive and notfound are made by the site and no page uses them: the menu links to /kalender/ for the calendar and /blog/ for the news list'
 
 function structuralProblems(root: string, proposal: SetupProposal): string[] {
-  const problems: string[] = []
+  const problems: string[] = proposal.site?.assets ? assetProblems(root, proposal.site.assets) : []
   const generated = GENERATED_LAYOUTS as readonly string[]
   const usable = new Set(pageLayouts(path.join(root, 'design')))
   for (const layout of proposal.layouts ?? []) if (!generated.includes(layout.name)) usable.add(layout.name)
@@ -123,6 +125,7 @@ function applyUnchecked(root: string, input: SetupProposal, finish: boolean): st
       timezone: proposal.site.timezone?.trim() || current.timezone,
       url: proposal.site.url?.trim() || current.url,
       languages: languages && languages.length > 0 ? languages : current.languages,
+      ...(Object.keys({ ...current.assets, ...proposal.site.assets }).length > 0 ? { assets: { ...current.assets, ...proposal.site.assets } } : {}),
     })
     notes.push('site')
     const trimmed = dropOtherLanguages(root)

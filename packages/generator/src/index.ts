@@ -19,7 +19,7 @@ export function initSite(root: string): void {
 }
 
 export { renderContent, designFilePath, assertSlug, writeYaml, readYaml } from './content'
-export { generate, pageOutputFile, pageUrl, replaceLayout, pageLayoutsOrThrow } from './generate'
+export { assetsCss, generate, pageOutputFile, pageUrl, replaceLayout, pageLayoutsOrThrow } from './generate'
 export { lostContent, slotExpectations } from './preservation'
 export type { PageExpectation } from './preservation'
 export { applyContentCorrection } from './hints'
@@ -43,7 +43,7 @@ export {
 } from './layouts'
 export { bilingualGaps, checkPage, deletePage, dropOtherLanguages, listPageSlugs, pageFilePath, pageHasLanguage, pagesByLayout, readPage, writePage } from './pages'
 export { applyProposal, normalizeProposal, proposalProblems, readProposal, recordProposal } from './setup'
-export { labelNames, parseLabels, readLabels, readSiteConfig, setupAccepted, readEventFields } from './model'
+export { assetProblems, labelNames, parseLabels, readLabels, readSiteConfig, setupAccepted, readEventFields } from './model'
 export { fontFaceCss, fontPreloadLinks, parseFonts, readFonts, writeFonts } from './fonts'
 export type { FontFace } from './fonts'
 export { SLOT_TYPES, parseSlotSchema, resolveSlots, serializeSlotSchema, slotSignature, slotTexts, validateSlots } from './slots'

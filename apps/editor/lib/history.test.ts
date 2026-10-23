@@ -196,3 +196,45 @@ test('shortening a long history says so, and a history that fits is not touched'
   ]
   assert.equal(JSON.stringify(pruneHistory(talk, 100)).includes('tool work'), false)
 })
+
+test('the cut of a long history moves rarely, so between two moves every request starts the same way', () => {
+  const budget = 60_000
+  const turns = Array.from({ length: 16 }, (_value, index) => steps(String(index + 1), 3))
+  let before: string | null = null
+  let wasTrimmed = false
+  let moves = 0
+  let requests = 0
+  let largest = 0
+  for (let turn = 0; turn < turns.length; turn += 1) {
+    const finished = turns.slice(0, turn).flat()
+    // The running turn grows by an assistant message and its tool results at a time.
+    for (let upTo = 1; upTo <= turns[turn].length; upTo += upTo === 1 ? 1 : 2) {
+      const pruned = pruneHistory([...finished, ...turns[turn].slice(0, upTo)], budget, { keepReasoning: true })
+      assert.deepEqual(problems(pruned), [])
+      largest = Math.max(largest, JSON.stringify(pruned).length)
+      const start = JSON.stringify(pruned.slice(0, 4))
+      const trimmed = String(pruned[0].content).includes('tool work of the earlier turns')
+      if (before !== null && start !== before) {
+        moves += 1
+        // The first trim can come in the middle of a turn that grows over the budget; every later move comes between turns.
+        if (wasTrimmed) assert.equal(upTo, 1, 'the cut moved in the middle of a turn')
+      }
+      before = start
+      wasTrimmed = trimmed
+      requests += 1
+    }
+  }
+  assert.ok(requests > 40)
+  assert.ok(moves >= 1 && moves <= 6, `the start of the history changed ${moves} times in ${requests} requests`)
+  assert.ok(largest <= budget + 20_000, `largest request ${largest} characters`)
+})
+
+test('what was said in the turns before the cut stays, in the same order', () => {
+  const turns = Array.from({ length: 10 }, (_value, index) => steps(String(index + 1), 3))
+  const pruned = pruneHistory(turns.flat(), 12_000, { keepReasoning: false })
+  const text = JSON.stringify(pruned)
+  assert.match(String(pruned[0].content), /tool work of the earlier turns of this chat was dropped/)
+  for (const id of ['1', '2', '3']) assert.ok(text.includes(`Request ${id}"`) && text.includes(`Done ${id}`), `turn ${id} is gone`)
+  assert.ok(text.indexOf('Request 1"') < text.indexOf('Request 2"') && text.indexOf('Request 2"') < text.indexOf('Request 3"'))
+  assert.deepEqual(problems(pruned), [])
+})

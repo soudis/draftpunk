@@ -19,9 +19,14 @@ const READ_TOOLS = new Set([
 ])
 
 const STUB_OVER = 400
-// About 100k tokens: the first real setup came to 3.7 characters a token. A longer history costs a lot on every step and
-// the model reads the middle of it badly, so what the site itself shows (the files, the catalog) replaces it.
-export const DEFAULT_BUDGET_CHARS = 360_000
+// About 65k tokens (3.7 characters a token in the first real setup). A longer history costs a lot on every step and the
+// model reads the middle of it badly; what the site itself shows (the files, the catalog) replaces what is cut.
+export const DEFAULT_BUDGET_CHARS = 250_000
+// The cut moves only every second turn, and only when the finished turns plus this room for the turn that is running
+// no longer fit. Between moves the start of the history is the same in every request, so the provider's cache holds it.
+const ANCHOR_EVERY = 2
+const TURN_ROOM = 60_000
+const turnRoom = (budgetChars: number) => Math.min(TURN_ROOM, Math.floor(budgetChars / 4))
 
 export const COMPACTED_NOTE =
   'Note: the tool work of the earlier turns of this chat was dropped to keep it short. What was said is kept. What was done is in the site: read a page, a layout or a file again if you need its text.'
@@ -105,7 +110,10 @@ export function pruneHistory(messages: ModelMessage[], budgetChars = DEFAULT_BUD
     }
     return message
   })
-  return repairHistory(fitBudget(pruned.map(withoutLeakedCalls), turnStart, budgetChars, options.keepReasoning === true))
+  const stubbed = pruned.map(withoutLeakedCalls)
+  // Whether to cut depends on the finished turns only, so it does not flip while the running turn grows.
+  if (size(stubbed.slice(0, turnStart)) + turnRoom(budgetChars) <= budgetChars) return repairHistory(stubbed)
+  return repairHistory(cutAtAnchor(stubbed, turnStart, budgetChars, options.keepReasoning === true) ?? fitBudget(stubbed, turnStart, budgetChars, options.keepReasoning === true))
 }
 
 // A tool call that the model wrote as text, and that never ran, is not sent back.
@@ -119,6 +127,30 @@ function withoutLeakedCalls(message: ModelMessage): ModelMessage {
 
 function size(messages: ModelMessage[]): number {
   return messages.reduce((total, message) => total + JSON.stringify(message.content).length, 0)
+}
+
+/**
+ * Turns before an anchor (every second turn, counted from the first) keep only what was said, and the turns from the anchor on
+ * stay whole. The anchor is the earliest one from which the finished turns, with room for the running one, fit the
+ * budget. It moves rarely, so the cache of the provider keeps the history between moves. Null when no anchor helps.
+ */
+function cutAtAnchor(messages: ModelMessage[], turnStart: number, budgetChars: number, keepReasoning: boolean): ModelMessage[] | null {
+  const users = messages.flatMap((message, index) => (message.role === 'user' ? [index] : []))
+  for (let anchor = 2; anchor < users.length; anchor += ANCHOR_EVERY) {
+    const from = users[anchor]
+    if (from >= turnStart) break
+    if (size(messages.slice(from, turnStart)) + turnRoom(budgetChars) > budgetChars) continue
+    const said: ModelMessage[] = []
+    for (const message of messages.slice(0, from)) {
+      if (message.role === 'user') said.push(message)
+      else if (message.role === 'assistant') {
+        const text = parts(message).filter((part) => part.type === 'text' || (keepReasoning && part.type === 'reasoning'))
+        if (text.some((part) => part.type === 'text')) said.push(withParts(message, text))
+      }
+    }
+    return [{ role: 'user', content: COMPACTED_NOTE }, ...said, ...messages.slice(from)]
+  }
+  return null
 }
 
 // When even the pruned history is too long, drop the tool traffic of the oldest turns and keep what was said.

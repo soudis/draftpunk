@@ -127,7 +127,11 @@ export function resolverFor(root: string): Resolver {
     const named = [record[address], record[rest], slugFor(rest), slugFor(last)].find((slug) => slug && slugs.has(slug))
     if (named) return pageUrl(named, languages[0], site)
     const titled = label ? byTitle.get(plain(label)) : undefined
-    return titled?.length === 1 ? pageUrl(titled[0], languages[0], site) : null
+    if (titled?.length === 1) return pageUrl(titled[0], languages[0], site)
+    // The calendar and the news list are made by the site, not written as pages.
+    if (rest === '/kalender' || rest === '/calendar' || (label && ['kalender', 'calendar'].includes(plain(label)))) return '/kalender/'
+    if (rest === '/blog' || rest === '/news' || (label && ['aktuelles', 'news', 'blog', 'neuigkeiten'].includes(plain(label)))) return '/blog/'
+    return null
   }
 }
 

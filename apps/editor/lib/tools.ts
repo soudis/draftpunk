@@ -14,15 +14,16 @@ import { listReferences, readReference, saveReference } from './references'
 import { formatProfile, PROFILE_SOURCE, type RawProfile } from './site-profile'
 import { DATE_SOURCE, formatText, TEXT_SOURCE, type RawText } from './site-text'
 import { collectPaths, siteMap } from './site-map'
-import { importPages, DEFAULT_BATCH, MAX_BATCH } from './import-pages'
+import { forgetImported, importedFrom, importPages, normalPath, DEFAULT_BATCH, MAX_BATCH } from './import-pages'
 import { buildNav, MENU_SOURCE, resolverFor, writeMenu, type MenuEntry } from './source-menu'
-import { SITE_VIEWPORTS, withSitePage, type FetchPage, type SiteViewport } from './web-render'
+import { safeFetch } from './safe-fetch'
+import { resolveAddress, SITE_VIEWPORTS, withSitePage, type FetchPage, type SiteViewport } from './web-render'
 import { replaceOnce } from './edit'
 import { slotDefAt, slotPath, valueAt, withValueAt } from './slot-edit'
 import { auditPage, pagePath, type ViewportName } from './page-audit'
 import { documentOpacityRefusal } from './page-opacity'
 import { suggestPicture } from './picture-vision'
-import { detectPicture, discardPicture, fitPicture, readPicture, searchPictures, stemFromFilename, storePicture } from './pictures'
+import { detectPicture, discardPicture, fitPicture, pictureByOrigin, readPicture, searchPictures, stemFromFilename, storePicture } from './pictures'
 import { fetchPublicBytes, readWebsite } from './read-website'
 import { screenshotMarker, ScreenshotStore } from './screenshots'
 import { defineTool, fail } from './tool-kit'
@@ -58,6 +59,7 @@ import {
   readLayoutFiles,
   readPage,
   readProposal,
+  assetProblems,
   readYaml,
   readSiteConfig,
   recordProposal,
@@ -110,7 +112,28 @@ function removePage(root: string, slug: string): string {
   if (slug === 'home') fail('The home page cannot be removed.')
   assertSlug(slug)
   if (!deletePage(root, slug)) fail(`Missing page ${slug}`)
+  forgetImported(root, [slug])
   return finish(root, `Removed page ${slug}.`)
+}
+
+/** Remove many pages at once: the ones named, and the ones an import took from a part of its source. */
+function removePages(root: string, input: { slugs?: string[]; source_prefix?: string }): string {
+  const names = new Set(input.slugs ?? [])
+  if (input.source_prefix?.trim()) for (const slug of importedFrom(root, input.source_prefix)) names.add(slug)
+  if (names.size === 0) fail('Name the pages in slugs, or give source_prefix such as /events/ for the pages an import took from there.')
+  const removed: string[] = []
+  const missing: string[] = []
+  for (const slug of names) {
+    if (slug === 'home') continue
+    assertSlug(slug)
+    if (deletePage(root, slug)) removed.push(slug)
+    else missing.push(slug)
+  }
+  forgetImported(root, removed)
+  const lines = [`Removed ${removed.length} page${removed.length === 1 ? '' : 's'}${removed.length > 0 ? `: ${removed.slice(0, 12).join(', ')}${removed.length > 12 ? `, and ${removed.length - 12} more` : ''}` : ''}.`]
+  if (missing.length > 0) lines.push(`Not found: ${missing.slice(0, 8).join(', ')}${missing.length > 8 ? `, and ${missing.length - 8} more` : ''}.`)
+  lines.push('Pictures stay in the media library, and links to these pages on other pages now lead nowhere.')
+  return finish(root, lines.join(' '))
 }
 
 function readContentYaml(root: string, folder: 'events' | 'places', slug: string, label: string): string {
@@ -320,6 +343,15 @@ export function contentTools(root: string, options: ToolOptions = {}): ToolSet {
         return finish(root, `Replaced ${count === 1 ? 'one match' : `${count} matches`} in slots.${slot}${language ? ` (${language})` : ''} of page ${slug}.`)
       },
     }),
+    delete_pages: defineTool('delete_pages', {
+      description:
+        'Remove many pages at once, in every language: name them in slugs, or give source_prefix such as /events/ for every page that import_pages took from that part of the source site. The home page is never removed. Use it to take back part of an import instead of removing pages one by one. They are taken out of the import record, so they can be imported again. Pictures stay.',
+      input: z.object({
+        slugs: z.array(z.string()).max(300).optional().describe('Optional. Page slugs, at most 300.'),
+        source_prefix: z.string().optional().describe('Optional. A part of the source site in the form of an import rule: /events/, /news/*, /events/2021-*.'),
+      }),
+      execute: (input) => removePages(root, input),
+    }),
     delete_page: defineTool('delete_page', {
       description:
         'Remove a page from the draft, in every language. The home page cannot be removed. Navigation links and pictures stay. The public site keeps the page until publish.',
@@ -510,6 +542,7 @@ export function contentTools(root: string, options: ToolOptions = {}): ToolSet {
           description: chosen.description,
           tags: chosen.tags,
           replace: replace === true,
+          origin: fetched.url,
         })
         generate(root)
         const tagList = saved.tags.join(', ') || 'none'
@@ -784,6 +817,8 @@ export function designTools(root: string, options: ToolOptions = {}): ToolSet {
           if (entry.pages.length === 0) lines.push(`- layout ${entry.name} is used by no page. Delete it if it is not needed.`)
           if (entry.similar.length > 0) lines.push(`- layouts ${entry.name} and ${entry.similar.join(', ')} take the same slots. One may be enough.`)
         }
+        const rawAssets = readYaml<{ assets?: Record<string, unknown> }>(path.join(designDir, 'site.yml'), {}).assets
+        if (rawAssets && typeof rawAssets === 'object') for (const problem of assetProblems(root, rawAssets)) lines.push(`- design/site.yml ${problem}`)
         if (Object.keys(tokens.colors).length === 0) lines.push('- design/tokens.yml has no colors, so colors are not checked.')
         return lines.length === 0 ? 'The design follows the tokens. Nothing to change.' : `${lines.slice(0, 24).join('\n')}${lines.length > 24 ? `\n… and ${lines.length - 24} more.` : ''}`
       },
@@ -795,6 +830,32 @@ export function designTools(root: string, options: ToolOptions = {}): ToolSet {
       execute: ({ rule }) => {
         const { rules, added } = addRule(root, rule)
         return added ? `Added a rule. There are ${rules.length}: ${rules.join(' | ')}` : 'That rule is already there.'
+      },
+    }),
+    set_asset: defineTool('set_asset', {
+      description:
+        'Give the whole site a picture by name: logo, favicon, social (the picture shown when a page is shared), or any other such as hero-pattern. Save the picture first with save_picture (and fit_picture for a logo, which needs twice its width on a screen). Templates show it with {{ assets.logo }} and styles with var(--asset-logo), so a design file never holds an address. The starter header shows assets.logo in place of the site name when it is set, and the generator adds favicon and social to every page. Leave picture out to remove one.',
+      input: z.object({
+        name: z.string().describe('Required. Lowercase words with dashes: logo, favicon, social, hero-pattern.'),
+        picture: z.string().optional().describe('Optional. The address of a picture in the site, such as /media/logo-320.webp. Leave it out to remove the asset.'),
+      }),
+      execute: async ({ name, picture }) => {
+        const file = path.join(root, 'design', 'site.yml')
+        const site = readYaml<Record<string, unknown>>(file, {})
+        const assets: Record<string, unknown> = { ...(site.assets && typeof site.assets === 'object' ? (site.assets as Record<string, unknown>) : {}) }
+        if (!picture?.trim()) {
+          if (!(name in assets)) fail(`There is no asset ${name}. The site has: ${Object.keys(assets).join(', ') || 'none'}.`)
+          delete assets[name]
+        } else {
+          const problems = assetProblems(root, { [name]: picture.trim() })
+          if (problems.length > 0) fail(problems.join(' '))
+          assets[name] = picture.trim()
+        }
+        if (Object.keys(assets).length > 0) site.assets = assets
+        else delete site.assets
+        writeYaml(file, site)
+        const used = picture?.trim() ? `Set asset ${name} to ${picture.trim()}. Show it with {{ assets.${name} }} in a template or var(--asset-${name}) in a style.` : `Removed asset ${name}.`
+        return await finishDesign(root, used, verifier)
       },
     }),
     add_font: defineTool('add_font', {
@@ -986,7 +1047,7 @@ export function designTools(root: string, options: ToolOptions = {}): ToolSet {
           }),
           import_pages: defineTool('import_pages', {
             description:
-              'Take the pages of a source site into this site by rule, a batch at a time: it reads each page in a browser, saves the pictures the page uses, writes the page, and points links between imported pages at the new pages. Only for a source site the person named for this, and only for the texts and pictures they said to take. Read two or three pages of each kind first, then give rules: the first rule whose match fits a page decides its layout. match is "/news/" or "/news/*" for everything under that path, "/about" for one page, "*" for the rest. body names the markdown slot for the text (default body), summary a text slot for the first paragraph, lead an image slot for the first picture, dated is for news items. The page title comes from the first heading. Pages in a language the site has (a /en/ prefix) join the page of the same address; nothing is translated. Pass skip with the source addresses you already wrote in the first pass. A call reads pages, five at a time, for about a minute and does as many as that allows; when the result says more pages match, call again with the same rules. Pages already imported are left alone unless refresh is true. The result lists what did not fit. Example: {"source":"https://old.example","rules":[{"match":"/news/","layout":"article","dated":true},{"match":"*","layout":"article"}],"skip":["/contact"]}.',
+              'Take the pages of a source site into this site by rule, a batch at a time: it reads each page in a browser, saves the pictures the page uses, writes the page, and points links between imported pages at the new pages. Only for a source site the person named for this, and only for the texts and pictures they said to take. Leave parts out with exclude (for example the events, when they were not asked for) instead of listing every page you want. Read two or three pages of each kind first, then give rules: the first rule whose match fits a page decides its layout. match is "/news/" or "/news/*" for everything under that path, "/about" for one page, "/events/2021-*" for a pattern, "*" for the rest. A page that is only another address (a redirect) of a page is not imported twice. body names the markdown slot for the text (default body), summary a text slot for the first paragraph, lead an image slot for the first picture, dated is for news items. The page title comes from the first heading. Pages in a language the site has (a /en/ prefix) join the page of the same address; nothing is translated. Pass skip with the source addresses you already wrote in the first pass. A call reads pages, five at a time, for about a minute and does as many as that allows; when the result says more pages match, call again with the same rules. Pages already imported are left alone unless refresh is true. The result lists what did not fit. Example: {"source":"https://old.example","rules":[{"match":"/news/","layout":"article","dated":true},{"match":"*","layout":"article"}],"skip":["/contact"]}.',
             input: z.object({
               source: z.string().describe('Required. Address of the source site.'),
               rules: z
@@ -1001,8 +1062,9 @@ export function designTools(root: string, options: ToolOptions = {}): ToolSet {
                   }),
                 )
                 .min(1)
-                .max(12)
+                .max(40)
                 .describe('Required. The rules, most specific first.'),
+              exclude: z.array(z.string()).max(60).optional().describe('Optional. Addresses to leave out, as in a rule: /events/*, /blog, /category/*, /events/2021-*. Checked before the rules, so a * rule can stay.'),
               skip: z.array(z.string()).optional().describe('Optional. Source addresses already used in the first pass.'),
               limit: z.number().int().min(1).max(MAX_BATCH).optional().describe(`Optional. Pages in this call. Default ${DEFAULT_BATCH}.`),
               refresh: z.boolean().optional().describe('Optional. Read imported pages again and overwrite them. Only when the person asks.'),
@@ -1011,13 +1073,14 @@ export function designTools(root: string, options: ToolOptions = {}): ToolSet {
               const summary = await importPages(root, input, {
                 listPaths: (source) => collectPaths(source, options.fetchPage),
                 readPage: (url) =>
-                  withSitePage(url, { fetchPage: options.fetchPage }, async (page) => {
+                  withSitePage(url, { fetchPage: options.fetchPage }, async (page, final) => {
                     const raw = (await page.evaluate(TEXT_SOURCE)) as RawText
                     if (raw.empty || !raw.markdown.trim()) throw new Error(`${url} shows no text to read.`)
                     const date = String(await page.evaluate(DATE_SOURCE).catch(() => ''))
-                    return { title: raw.title, markdown: raw.markdown, date }
+                    return { title: raw.title, markdown: raw.markdown, date, finalUrl: final }
                   }),
                 fetchPicture: (url) => fetchPublicBytes(url, options.fetchPage),
+                knownPicture: (url) => pictureByOrigin(root, url),
               })
               return finish(root, summary)
             },
@@ -1040,7 +1103,28 @@ export function designTools(root: string, options: ToolOptions = {}): ToolSet {
                 }
               }
               if (!menus[languages[0]]?.length) fail(`No menu was found on ${origin}/. Name the pages in design/nav.yml yourself.`)
-              const built = buildNav(menus, { origin, languages, resolve: resolverFor(root) })
+              // A menu entry may lead through a redirect (a /home/ address) to the page that was imported: follow it for the entries that found no page.
+              const direct = resolverFor(root)
+              const redirected = new Map<string, string>()
+              const unresolved = new Set<string>()
+              for (const menu of Object.values(menus)) {
+                for (const entry of menu) {
+                  for (const item of [entry, ...entry.children]) {
+                    try {
+                      const url = new URL(item.href)
+                      if (url.origin === origin && !direct(normalPath(url.pathname), item.label)) unresolved.add(url.href)
+                    } catch {
+                      // Not an address; buildNav leaves it out.
+                    }
+                  }
+                }
+              }
+              for (const href of [...unresolved].slice(0, 80)) {
+                const ended = await resolveAddress(options.fetchPage ?? safeFetch, href)
+                if ('url' in ended) redirected.set(normalPath(new URL(href).pathname), normalPath(new URL(ended.url).pathname))
+              }
+              const resolve = (address: string, label?: string) => direct(address, label) ?? (redirected.has(address) ? direct(redirected.get(address) as string, label) : null)
+              const built = buildNav(menus, { origin, languages, resolve })
               if (built.menu.length === 0) fail('None of its menu entries has a page on this site yet. Write or import the pages first.')
               writeMenu(root, built.menu)
               const lines = built.menu.map((item) => `- ${item.label[languages[0]]} → ${item.href}${item.children ? ` (${item.children.map((child) => child.label[languages[0]]).join(', ')})` : ''}`)

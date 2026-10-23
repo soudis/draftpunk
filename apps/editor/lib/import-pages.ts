@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { checkPage, pageUrl, readLayout, readPage, readSiteConfig, readYaml, writePage, writeYaml, type PageFile } from '@schlor/generator'
+import { checkPage, listPageSlugs, pageUrl, readLayout, readPage, readSiteConfig, readYaml, writePage, writeYaml, type PageFile } from '@schlor/generator'
 import { normalizeDescription, stemFromFilename, storePicture } from './pictures'
 import { fail } from './tool-kit'
 
@@ -30,23 +30,28 @@ export type ImportRule = {
 export type ImportInput = {
   source: string
   rules: ImportRule[]
+  /** Addresses to leave out, in the same form as a rule's match. They are checked before the rules, so a catch-all rule can stay. */
+  exclude?: string[]
   /** Source addresses that already became pages in the first pass. */
   skip?: string[]
   limit?: number
   refresh?: boolean
 }
 
-export type PageRead = { title: string; markdown: string; date: string }
+/** `finalUrl` is the address the page was read at after its redirects; a page that ended up elsewhere is another address of that page. */
+export type PageRead = { title: string; markdown: string; date: string; finalUrl?: string }
 
 export type ImportDeps = {
   listPaths(source: string): Promise<{ origin: string; paths: string[]; sitemap: boolean }>
   readPage(url: string): Promise<PageRead>
   fetchPicture(url: string): Promise<{ url: string; body: Uint8Array }>
+  /** A picture that is already in the site from this address (saved earlier, in the first pass), or null. */
+  knownPicture?(url: string): string | null
   /** How long a call may keep starting page reads. Default 75 seconds. */
   budgetMs?: number
 }
 
-type SourceRecord = { source: string; pages: Record<string, string>; pictures: Record<string, string> }
+type SourceRecord = { source: string; pages: Record<string, string>; pictures: Record<string, string>; aliases: Record<string, string> }
 
 const UTILITY = /^\/(?:wp-|feed\b|tag\/|category\/|author\/|page\/\d|search\b|cart\b|checkout\b|login\b|account\b|cdn-cgi\b)|\/(?:feed|amp)$/i
 
@@ -56,8 +61,36 @@ export function recordPath(root: string): string {
 
 function readRecord(root: string, origin: string): SourceRecord {
   const stored = readYaml<Partial<SourceRecord>>(recordPath(root), {})
-  if (stored.source === origin) return { source: origin, pages: stored.pages ?? {}, pictures: stored.pictures ?? {} }
-  return { source: origin, pages: {}, pictures: {} }
+  if (stored.source !== origin) return { source: origin, pages: {}, pictures: {}, aliases: {} }
+  // A page that was deleted since is no longer imported: it does not count against the limit, and it can be imported again.
+  const live = new Set(listPageSlugs(root))
+  const pages = Object.fromEntries(Object.entries(stored.pages ?? {}).filter(([, slug]) => live.has(slug)))
+  const aliases = Object.fromEntries(
+    Object.entries(stored.aliases ?? {}).filter(([, target]) => {
+      const slug = (stored.pages ?? {})[target]
+      return slug === undefined || live.has(slug)
+    }),
+  )
+  return { source: origin, pages, pictures: stored.pictures ?? {}, aliases }
+}
+
+/** The pages of this site that were imported from a part of the source (an address in the form of a rule's match). */
+export function importedFrom(root: string, pattern: string): string[] {
+  const languages = readSiteConfig(root).languages.map((language) => language.id)
+  const stored = readYaml<Partial<SourceRecord>>(recordPath(root), {})
+  const slugs = new Set<string>()
+  for (const [address, slug] of Object.entries(stored.pages ?? {})) if (matchesPath(pattern, splitLanguage(address, languages).rest)) slugs.add(slug)
+  return [...slugs]
+}
+
+/** Take deleted pages out of the record of an import, so it stays true. */
+export function forgetImported(root: string, slugs: string[]): void {
+  const gone = new Set(slugs)
+  const stored = readYaml<Partial<SourceRecord>>(recordPath(root), {})
+  if (!stored.pages) return
+  const pages = Object.fromEntries(Object.entries(stored.pages).filter(([, slug]) => !gone.has(slug)))
+  if (Object.keys(pages).length === Object.keys(stored.pages).length) return
+  writeYaml(recordPath(root), { ...stored, pages })
 }
 
 export function normalPath(input: string): string {
@@ -75,16 +108,34 @@ export function splitLanguage(address: string, languages: string[]): { lang: str
   return { lang: first, rest: parts.length === 0 ? '/' : `/${parts.join('/')}` }
 }
 
-export function matchRule(rules: ImportRule[], rest: string): ImportRule | null {
-  for (const rule of rules) {
-    const match = rule.match.trim()
-    if (match === '*') return rule
-    const prefix = match.endsWith('/*') ? match.slice(0, -1) : match.endsWith('/') ? match : null
-    if (prefix) {
-      if (rest === prefix.slice(0, -1) || rest.startsWith(prefix)) return rule
-    } else if (normalPath(match) === rest) return rule
+function decoded(text: string): string {
+  try {
+    return decodeURIComponent(text)
+  } catch {
+    return text
   }
-  return null
+}
+
+/**
+ * Whether an address fits a pattern. '*' fits every address; '/news/' and '/news/*' fit everything under it;
+ * a pattern with a * inside, such as '/events/2021-*', fits what the star stands for; any other pattern is one address.
+ * Addresses are compared as people write them, so %-codes and capitals do not matter.
+ */
+export function matchesPath(pattern: string, rest: string): boolean {
+  const match = decoded(pattern.trim()).toLowerCase()
+  const address = decoded(rest).toLowerCase()
+  if (match === '*') return true
+  const inner = match.endsWith('/*') ? match.slice(0, -2) : match.endsWith('/') ? match.slice(0, -1) : null
+  if (inner !== null && !inner.includes('*')) return address === (inner || '') || address.startsWith(`${inner}/`)
+  if (match.includes('*')) {
+    const expression = match.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')
+    return new RegExp(`^${expression}$`).test(address) || new RegExp(`^${expression}$`).test(address.replace(/\/+$/, ''))
+  }
+  return normalPath(match) === normalPath(address)
+}
+
+export function matchRule(rules: ImportRule[], rest: string): ImportRule | null {
+  return rules.find((rule) => matchesPath(rule.match, rest)) ?? null
 }
 
 export function slugFor(rest: string): string {
@@ -109,7 +160,7 @@ export function splitTitle(read: PageRead): { title: string; markdown: string } 
   const lines = read.markdown.split('\n')
   const index = lines.findIndex((line) => /^# \S/.test(line))
   if (index >= 0 && lines.slice(0, index).every((line) => !line.trim() || /^!\[/.test(line))) {
-    const title = lines[index].replace(/^# /, '').trim()
+    const title = unescapeMarkdown(lines[index].replace(/^# /, '').trim())
     return { title, markdown: [...lines.slice(0, index), ...lines.slice(index + 1)].join('\n') }
   }
   const tab = read.title.split(/\s+[|–—•·-]\s+/)[0]?.trim() ?? ''
@@ -129,14 +180,24 @@ export function tidyMarkdown(markdown: string): string {
     .trim()
 }
 
+/** Plain text from markdown text: an escaped * or _ (a gender star, a word with an underscore) is the character itself. */
+export function unescapeMarkdown(text: string): string {
+  return text.replace(/\\([\\*_])/g, '$1')
+}
+
 export function firstParagraph(markdown: string): string {
   for (const block of markdown.split(/\n{2,}/)) {
     const text = block.trim()
     if (!text || /^(?:#|!\[|[-*>|]|\d+\.\s|---)/.test(text)) continue
+    // Escaped characters are set aside while the markup is taken out, and put back as themselves.
+    const aside: Record<string, string> = { '*': '\u0001a', _: '\u0001b', '\\': '\u0001c' }
+    const back: Record<string, string> = { a: '*', b: '_', c: '\\' }
     return text
       .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
       .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/\\([\\*_])/g, (_whole, char: string) => aside[char])
       .replace(/[*_`]+/g, '')
+      .replace(/\u0001([abc])/g, (_whole, key: string) => back[key])
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 300)
@@ -197,7 +258,7 @@ async function pool<T>(items: T[], size: number, run: (item: T) => Promise<void>
 }
 
 type Group = { rest: string; paths: Record<string, string> }
-type Staged = { group: Group; rule: ImportRule; slug: string; reads: Record<string, PageRead>; failed: string[]; started: boolean }
+type Staged = { group: Group; rule: ImportRule; slug: string; reads: Record<string, PageRead>; failed: string[]; started: boolean; alias?: Record<string, string> }
 
 function checkRules(root: string, rules: ImportRule[]): void {
   if (rules.length === 0) fail('Give at least one rule: which pages go into which layout.')
@@ -247,6 +308,9 @@ export async function importPages(root: string, input: ImportInput, deps: Import
   const missingDefault: string[] = []
   let covered = 0
   let already = 0
+  let excluded = 0
+  let aliased = 0
+  const exclusions = input.exclude ?? []
   const pending: { group: Group; rule: ImportRule }[] = []
   for (const group of [...groups.values()].sort((a, b) => a.rest.localeCompare(b.rest))) {
     if (!group.paths[defaultLang]) {
@@ -257,9 +321,17 @@ export async function importPages(root: string, input: ImportInput, deps: Import
       covered += 1
       continue
     }
+    if (exclusions.some((pattern) => matchesPath(pattern, group.rest))) {
+      excluded += 1
+      continue
+    }
     const rule = matchRule(input.rules, group.rest)
     if (!rule) {
       unmatched.push(group.rest)
+      continue
+    }
+    if (record.aliases[group.paths[defaultLang]] && !input.refresh) {
+      aliased += 1
       continue
     }
     if (record.pages[group.paths[defaultLang]] && !input.refresh) {
@@ -311,7 +383,16 @@ export async function importPages(root: string, input: ImportInput, deps: Import
       if (!entry.started && Date.now() >= deadline) return
       entry.started = true
       try {
-        entry.reads[lang] = await deps.readPage(new URL(address, origin).href)
+        const read = await deps.readPage(new URL(address, origin).href)
+        const ended = read.finalUrl ? normalPath(new URL(read.finalUrl).pathname) : normalPath(address)
+        if (ended !== normalPath(address) && new URL(read.finalUrl ?? address, origin).origin === new URL(origin).origin) {
+          // Another address of a page: it is not a page of its own. Its target is the page.
+          record.aliases[address] = ended
+          entry.alias ??= {}
+          entry.alias[lang] = ended
+          return
+        }
+        entry.reads[lang] = read
       } catch (error) {
         entry.failed.push(`${address}: ${error instanceof Error ? error.message : 'could not be read'}`)
       }
@@ -329,6 +410,13 @@ export async function importPages(root: string, input: ImportInput, deps: Import
     const original = originalPicture(src)
     const known = record.pictures[src] ?? (original ? record.pictures[original] : undefined)
     if (known) return known
+    for (const candidate of original ? [original, src] : [src]) {
+      const had = deps.knownPicture?.(candidate)
+      if (had) {
+        record.pictures[src] = had
+        return had
+      }
+    }
     if (pictureRoom <= 0) {
       pictureSkips.over += 1
       return null
@@ -342,6 +430,7 @@ export async function importPages(root: string, input: ImportInput, deps: Import
           filename: stemFromFilename(safeDecode(new URL(fetched.url).pathname)),
           description: normalizeDescription(alt),
           tags: [],
+          origin: fetched.url,
         })
         record.pictures[src] = saved.address
         if (candidate !== src) record.pictures[candidate] = saved.address
@@ -355,8 +444,14 @@ export async function importPages(root: string, input: ImportInput, deps: Import
     pictureSkips.read += 1
     return null
   }
+  const aliasNotes: string[] = []
   const readable = staged.filter((entry) => {
     if (entry.reads[defaultLang]) return true
+    const alias = entry.alias?.[defaultLang]
+    if (alias) {
+      aliasNotes.push(`${entry.group.paths[defaultLang]} is another address of ${alias}`)
+      return false
+    }
     skipped.push(entry.failed.find((line) => line.startsWith(entry.group.paths[defaultLang])) ?? `${entry.group.paths[defaultLang]}: could not be read`)
     return false
   })
@@ -376,6 +471,11 @@ export async function importPages(root: string, input: ImportInput, deps: Import
   const remember = (address: string, slug: string, lang: string) => known.set(normalPath(address), pageUrl(slug, lang, site))
   for (const [address, slug] of Object.entries(record.pages)) remember(address, slug, splitLanguage(address, languages).lang)
   for (const entry of readable) for (const [lang, address] of Object.entries(entry.group.paths)) if (entry.reads[lang]) remember(address, entry.slug, lang)
+  // An address that is only another address of a page leads to that page.
+  for (const [address, target] of Object.entries(record.aliases)) {
+    const url = known.get(normalPath(target))
+    if (url) known.set(normalPath(address), url)
+  }
 
   const missingLang: string[] = []
   const done: Staged[] = []
@@ -435,6 +535,11 @@ export async function importPages(root: string, input: ImportInput, deps: Import
   else if (remaining > 0) lines.push('', `${remaining} more pages match your rules. Call import_pages again with the same rules to continue.`)
   else if (done.length > 0 || already > 0) lines.push('', 'Every page that matches your rules is imported.')
   const report: string[] = []
+  if (excluded > 0) report.push(`${excluded} pages were left out because they match exclude.`)
+  if (aliased > 0 || aliasNotes.length > 0) {
+    const notes = aliasNotes.slice(0, 3)
+    report.push(`${aliased + aliasNotes.length} addresses are only other addresses (redirects) of pages and were not imported twice${notes.length > 0 ? `, for example: ${notes.join('; ')}` : ''}.`)
+  }
   if (already > 0) report.push(`${already} pages were imported before and are left as they are (refresh: true reads them again and overwrites them).`)
   if (covered > 0) report.push(`${covered} pages were left out because the first pass already has them.`)
   if (unmatched.length > 0) report.push(`${unmatched.length} pages match no rule, for example ${unmatched.slice(0, 4).join(', ')}.`)

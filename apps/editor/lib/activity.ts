@@ -12,6 +12,7 @@ const SITE_WRITES = new Set([
   'write_event',
   'write_place',
   'delete_page',
+  'delete_pages',
   'delete_event',
   'delete_place',
   'set_homepage_news',
@@ -21,6 +22,7 @@ const SITE_WRITES = new Set([
   'accept_setup',
   'import_pages',
   'copy_menu',
+  'set_asset',
 ])
 
 export function toolPartName(part: { type: string; toolName?: string }): string | undefined {

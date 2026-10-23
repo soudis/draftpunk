@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import {
+  assetProblems,
   proposalProblems,
   readProposal,
   recordProposal,
@@ -569,4 +570,49 @@ test('a proposal may give layouts and pages as one object, or as an object with 
   assert.deepEqual((recorded.layouts ?? []).map((item) => item.name), ['text', 'zwei'])
   assert.deepEqual((recorded.pages ?? []).map((item) => item.slug), ['ueber-uns'])
   assert.throws(() => recordProposal(root, { layouts: 'nonsense: [' as never }), /layouts/)
+})
+
+test('a site picture is shown by the starter header, reaches styles as a property, and its favicon and share picture reach every head', () => {
+  const root = newSite('housing-assets-')
+  fs.writeFileSync(path.join(root, 'media', 'logo.png'), 'png')
+  fs.writeFileSync(path.join(root, 'media', 'icon.png'), 'png')
+  fs.writeFileSync(path.join(root, 'media', 'share.jpg'), 'jpg')
+  const before = generate(root)
+  assert.equal(fs.readFileSync(path.join(before.outDir, 'index.html'), 'utf8').includes('logo.png'), false)
+  const file = path.join(root, 'design', 'site.yml')
+  const site = fs.readFileSync(file, 'utf8')
+  fs.writeFileSync(file, `${site}\nurl: https://haus.example\nassets:\n  logo: /media/logo.png\n  favicon: /media/icon.png\n  social: /media/share.jpg\n  muster: /media/logo.png\n  bad name: /media/logo.png\n  outside: https://elsewhere.example/x.png\n`)
+  const result = generate(root)
+  const home = fs.readFileSync(path.join(result.outDir, 'index.html'), 'utf8')
+  assert.match(home, /<img[^>]+src="\/media\/logo\.png"[^>]+alt="[^"]+"/)
+  assert.match(home, /<link rel="icon" href="\/media\/icon\.png">/)
+  assert.match(home, /<meta property="og:image" content="https:\/\/haus\.example\/media\/share\.jpg">/)
+  const css = fs.readFileSync(path.join(result.outDir, 'assets', 'styles.css'), 'utf8')
+  assert.match(css, /--asset-logo:\s*url\(["']?\/media\/logo\.png["']?\)/)
+  assert.match(css, /--asset-muster:/)
+  assert.equal(css.includes('--asset-bad'), false)
+  assert.equal(css.includes('elsewhere.example'), false)
+  assert.deepEqual(readSiteConfig(root).assets, { logo: '/media/logo.png', favicon: '/media/icon.png', social: '/media/share.jpg', muster: '/media/logo.png' })
+})
+
+test('site pictures are checked: a name, an address outside the site, and a picture that is not there', () => {
+  const root = newSite('housing-asset-problems-')
+  fs.writeFileSync(path.join(root, 'media', 'logo.png'), 'png')
+  assert.deepEqual(assetProblems(root, { logo: '/media/logo.png' }), [])
+  const problems = assetProblems(root, { 'Logo Big': '/media/logo.png', icon: 'https://x.example/i.png', favicon: '/media/fehlt.png' })
+  assert.equal(problems.length, 3)
+  assert.match(problems[0], /name must be lowercase/)
+  assert.match(problems[1], /not a picture address/)
+  assert.match(problems[2], /not in this site\. Save the picture with save_picture first/)
+})
+
+test('a setup keeps the site pictures when it rewrites the site, and takes new ones from the proposal', () => {
+  const root = newSite('housing-asset-setup-')
+  fs.writeFileSync(path.join(root, 'media', 'logo.png'), 'png')
+  fs.writeFileSync(path.join(root, 'media', 'icon.png'), 'png')
+  applyProposal(root, { site: { name: 'Haus', assets: { logo: '/media/logo.png' } } })
+  applyProposal(root, { site: { name: 'Haus zwei', assets: { favicon: '/media/icon.png' } } })
+  assert.deepEqual(readSiteConfig(root).assets, { logo: '/media/logo.png', favicon: '/media/icon.png' })
+  assert.deepEqual(recordProposal(root, { site: { assets: { logo: '/media/nirgends.png' } } }).length, 1)
+  assert.throws(() => applyProposal(root, { site: { assets: { logo: '/media/nirgends.png' } } }), /not in this site/)
 })

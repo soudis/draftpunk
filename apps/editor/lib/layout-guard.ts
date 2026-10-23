@@ -33,7 +33,7 @@ export function designContentRefusal(rel: string, content: string, pages: NamedP
     return `design/${normalized} names ${list}. A design file serves many pages. Remove the name. Give that page its own layout if it needs its own look.`
   }
   if (/\/media\//.test(content)) {
-    return `design/${normalized} holds a picture address. Put the picture on the page in an image slot, and show it with {{ slots.name }}. A design file keeps the structure and the look.`
+    return `design/${normalized} holds a picture address. A picture of one page goes in an image slot of that page, shown with {{ slots.name }}. A picture of the whole site (a logo, an icon, a texture) is a site asset: save it with save_picture, register it with set_asset, and show it with {{ assets.name }} in a template or var(--asset-name) in a style.`
   }
   const external = externalResource(content, type)
   if (external) {

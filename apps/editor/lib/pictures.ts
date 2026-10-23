@@ -15,7 +15,7 @@ export type PictureRecord = {
   usages: number
 }
 
-type CatalogEntry = { file: string; description?: string; tags?: string[]; source?: string; fitWidth?: number }
+type CatalogEntry = { file: string; description?: string; tags?: string[]; source?: string; fitWidth?: number; /** The web address the picture was taken from, so it is not fetched twice. */ origin?: string }
 
 const EXTENSIONS: Record<PictureKind, string> = {
   jpeg: 'jpg',
@@ -101,7 +101,7 @@ export function searchPictures(root: string, query: string, limit = 30): { total
 
 export function storePicture(
   root: string,
-  input: { bytes: Uint8Array; filename: string; description?: string; tags?: string[]; replace?: boolean },
+  input: { bytes: Uint8Array; filename: string; description?: string; tags?: string[]; replace?: boolean; origin?: string },
 ): PictureRecord {
   const kind = detectPicture(input.bytes)
   if (!kind) throw new Error('That file is not a JPEG, PNG, WebP, GIF, or SVG.')
@@ -113,7 +113,7 @@ export function storePicture(
   fs.writeFileSync(path.join(media, file), input.bytes)
   const description = normalizeDescription(input.description ?? '')
   const tags = normalizeTags(input.tags ?? [])
-  remember(root, file, description, tags)
+  remember(root, file, description, tags, file, input.origin)
   return toRecord(file, { description, tags }, countUsages(root, file))
 }
 
@@ -266,15 +266,24 @@ function writeCatalog(root: string, entries: CatalogEntry[]): void {
       const tags = normalizeTags(entry.tags ?? [])
       const source = cleanSource(entry.source)
       const fitWidth = source && Number.isInteger(entry.fitWidth) && (entry.fitWidth ?? 0) > 0 ? entry.fitWidth : undefined
-      return { file: entry.file, description, tags, source: fitWidth ? source : undefined, fitWidth }
+      const origin = typeof entry.origin === 'string' && /^https?:\/\/\S{1,500}$/.test(entry.origin) ? entry.origin : undefined
+      return { file: entry.file, description, tags, source: fitWidth ? source : undefined, fitWidth, origin }
     })
-    .filter((entry) => entry.description || entry.tags.length > 0 || entry.source)
+    .filter((entry) => entry.description || entry.tags.length > 0 || entry.source || entry.origin)
     .sort((a, b) => a.file.localeCompare(b.file))
   if (kept.length === 0) {
     fs.rmSync(catalogPath(root), { force: true })
     return
   }
   writeYaml(catalogPath(root), kept)
+}
+
+/** The picture in the site that was taken from this web address, if there is one. */
+export function pictureByOrigin(root: string, url: string): string | null {
+  for (const entry of readCatalog(root)) {
+    if (entry.origin === url && fs.existsSync(path.join(mediaDir(root), entry.file))) return `/media/${entry.file}`
+  }
+  return null
 }
 
 function catalogByFile(root: string): Map<string, { description: string; tags: string[] }> {
@@ -285,12 +294,12 @@ function catalogByFile(root: string): Map<string, { description: string; tags: s
   return map
 }
 
-function remember(root: string, file: string, description: string, tags: string[], previous = file): void {
+function remember(root: string, file: string, description: string, tags: string[], previous = file, origin?: string): void {
   const catalog = readCatalog(root)
     .map((entry) => (previous !== file && entry.source === previous ? { ...entry, source: file } : entry))
     .filter((entry) => entry.file !== previous && entry.file !== file)
   const prior = readCatalog(root).find((entry) => entry.file === previous)
-  catalog.push({ file, description, tags, source: prior?.source, fitWidth: prior?.fitWidth })
+  catalog.push({ file, description, tags, source: prior?.source, fitWidth: prior?.fitWidth, origin: origin ?? prior?.origin })
   writeCatalog(root, catalog)
 }
 

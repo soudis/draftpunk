@@ -5,9 +5,13 @@ import path from 'node:path'
 import test from 'node:test'
 import { listPageSlugs, readPage, readYaml } from '@schlor/generator'
 import { ensureGit } from './git'
+import { toolsFor } from './tools'
 import {
   firstParagraph,
+  forgetImported,
+  importedFrom,
   importPages,
+  matchesPath,
   originalPicture,
   matchRule,
   normalPath,
@@ -301,4 +305,126 @@ test('pictures are saved a few at a time, and each one once', async () => {
   assert.equal(fetched.length, 10)
   assert.equal(new Set(fetched).size, 10)
   assert.ok(most > 1 && most <= 4, `at most ${most} at once`)
+})
+
+test('an address fits a pattern with a star anywhere, a prefix, or one address, whatever its %-codes and capitals', () => {
+  assert.equal(matchesPath('*', '/irgendwas/tief'), true)
+  assert.equal(matchesPath('/events/*', '/events/2021-fest'), true)
+  assert.equal(matchesPath('/events/', '/events'), true)
+  assert.equal(matchesPath('/events/*', '/eventsfoo'), false)
+  assert.equal(matchesPath('/events/2021-*', '/events/2021-habitat-stammtisch'), true)
+  assert.equal(matchesPath('/events/2021-*', '/events/2022-fest'), false)
+  assert.equal(matchesPath('*-kampagne-*', '/update-dk-kampagne-11-1-2021'), true)
+  assert.equal(matchesPath('/events/📗-baustelle', '/events/%f0%9f%93%97-baustelle'), true)
+  assert.equal(matchesPath('/Über-uns', '/%C3%BCber-uns'), true)
+  assert.equal(matchesPath('/about', '/about/team'), false)
+  assert.equal(matchesPath('/about', '/about/'), true)
+  assert.equal(matchRule([{ match: '/events/2021-*', layout: 'a' }, { match: '*', layout: 'b' }], '/events/2021-x')?.layout, 'a')
+})
+
+test('exclude leaves parts out, so a catch-all rule can stay', async () => {
+  const root = site()
+  const d = deps()
+  const text = await importPages(root, { source: 'https://old.example', rules: [{ match: '*', layout: 'article' }], exclude: ['/news/*', '/en/*'], skip: ['/kontakt'] }, d)
+  assert.match(text, /left out because they match exclude/)
+  assert.equal(d.reads.some((url) => url.includes('/news/')), false)
+  assert.equal(d.reads.some((url) => url.includes('/ueber-uns')), true)
+  assert.equal(readPage(root, 'news-a'), null)
+})
+
+test('an address that only redirects to another page is not a page of its own, and is not read again', async () => {
+  const root = site()
+  let reads = 0
+  const d = deps({
+    listPaths: async () => ({ origin: 'https://old.example', sitemap: true, paths: ['/ueber-uns', '/home/ueber-uns', '/news/a'] }),
+    readPage: async (url) => {
+      reads += 1
+      const path = new URL(url).pathname
+      const page = pages[path === '/home/ueber-uns' ? '/ueber-uns' : path]
+      return { ...page, finalUrl: path === '/home/ueber-uns' ? 'https://old.example/ueber-uns/' : url }
+    },
+  })
+  const rule = [{ match: '*', layout: 'article' }]
+  const first = await importPages(root, { source: 'https://old.example', rules: rule }, d)
+  assert.match(first, /1 addresses are only other addresses \(redirects\) of pages and were not imported twice, for example: \/home\/ueber-uns is another address of \/ueber-uns/)
+  assert.equal(readPage(root, 'home-ueber-uns'), null)
+  assert.ok(readPage(root, 'ueber-uns'))
+  const record = readYaml<{ aliases: Record<string, string> }>(recordPath(root), { aliases: {} })
+  assert.deepEqual(record.aliases, { '/home/ueber-uns': '/ueber-uns' })
+  const before = reads
+  const second = await importPages(root, { source: 'https://old.example', rules: rule }, d)
+  assert.equal(reads, before)
+  assert.match(second, /Every page that matches your rules is imported/)
+})
+
+test('a page deleted since the import is not counted against the limit, can be imported again, and a part of an import can be taken back at once', async () => {
+  const root = site()
+  const rule = [{ match: '*', layout: 'article' }]
+  await importPages(root, { source: 'https://old.example', rules: rule, skip: ['/kontakt'], exclude: ['/en/*'] }, deps())
+  assert.ok(readPage(root, 'news-a'))
+  assert.deepEqual(importedFrom(root, '/news/*').sort(), ['news-a', 'news-b'])
+  const tools = toolsFor('edit', root)
+  const result = String(await tools.delete_pages.execute!({ source_prefix: '/news/*' }, { toolCallId: 'x', messages: [] as never[] }))
+  assert.match(result, /Removed 2 pages: news-a, news-b/)
+  assert.equal(readPage(root, 'news-a'), null)
+  const record = readYaml<{ pages: Record<string, string> }>(recordPath(root), { pages: {} })
+  assert.equal(Object.values(record.pages).includes('news-a'), false)
+  assert.ok(readPage(root, 'ueber-uns'))
+  const again = await importPages(root, { source: 'https://old.example', rules: rule, skip: ['/kontakt'], exclude: ['/en/*'] }, deps())
+  assert.match(again, /Imported 2 pages/)
+  // A page removed with delete_page leaves the record too, and the home page is never removed by delete_pages.
+  await tools.delete_page.execute!({ slug: 'news-a' }, { toolCallId: 'y', messages: [] as never[] })
+  assert.equal(Object.values(readYaml<{ pages: Record<string, string> }>(recordPath(root), { pages: {} }).pages).includes('news-a'), false)
+  assert.match(String(await tools.delete_pages.execute!({ slugs: ['home', 'news-b', 'gibts-nicht'] }, { toolCallId: 'z', messages: [] as never[] })), /Removed 1 page: news-b\. Not found: gibts-nicht/)
+  assert.ok(readPage(root, 'home'))
+  await assert.rejects(() => tools.delete_pages.execute!({}, { toolCallId: 'w', messages: [] as never[] }), /Name the pages/)
+  forgetImported(root, ['nothing-here'])
+})
+
+test('deleted pages in an old record do not use up the limit of pages for one source', async () => {
+  const root = site()
+  const fake = Object.fromEntries(Array.from({ length: 250 }, (_value, index) => [`/alt/${index}`, `gone-${index}`]))
+  fs.mkdirSync(path.join(root, 'content'), { recursive: true })
+  fs.writeFileSync(recordPath(root), `source: https://old.example\npages:\n${Object.entries(fake).map(([address, slug]) => `  ${address}: ${slug}`).join('\n')}\npictures: {}\n`)
+  const text = await importPages(root, { source: 'https://old.example', rules: [{ match: '/ueber-uns', layout: 'article' }] }, deps())
+  assert.match(text, /Imported 1 page/)
+  assert.equal(text.includes('Stopped at the limit'), false)
+})
+
+test('a page named like a page the site makes itself is not written', async () => {
+  const root = site()
+  const text = await importPages(
+    root,
+    { source: 'https://old.example', rules: [{ match: '*', layout: 'article' }] },
+    deps({
+      listPaths: async () => ({ origin: 'https://old.example', sitemap: true, paths: ['/blog', '/kalender', '/ueber-uns'] }),
+      readPage: async (url) => ({ title: new URL(url).pathname.slice(1), markdown: `Ein Text über ${url}.`, date: '' }),
+    }),
+  )
+  assert.equal(readPage(root, 'blog'), null)
+  assert.equal(readPage(root, 'kalender'), null)
+  assert.ok(readPage(root, 'ueber-uns'))
+  assert.match(text, /\/blog: the name blog is made by the site/)
+})
+
+test('a picture saved earlier from the same address is used, not fetched and saved again', async () => {
+  const root = site()
+  const { storePicture, pictureByOrigin } = await import('./pictures')
+  const first = storePicture(root, { bytes: PNG, filename: 'hof', description: 'Der Hof', tags: ['hof'], origin: 'https://old.example/img/hof.png' })
+  assert.equal(pictureByOrigin(root, 'https://old.example/img/hof.png'), first.address)
+  assert.equal(pictureByOrigin(root, 'https://old.example/img/anderes.png'), null)
+  const fetched: string[] = []
+  const d = deps({
+    listPaths: async () => ({ origin: 'https://old.example', sitemap: true, paths: ['/ueber-uns'] }),
+    fetchPicture: async (url) => {
+      fetched.push(url)
+      return { url, body: PNG }
+    },
+    knownPicture: (url) => pictureByOrigin(root, url),
+  })
+  await importPages(root, { source: 'https://old.example', rules: [{ match: '/ueber-uns', layout: 'article' }] }, d)
+  assert.deepEqual(fetched, [])
+  const body = (readPage(root, 'ueber-uns')?.slots.body as Record<string, string>).de
+  assert.ok(body.includes(`![Der Hof](${first.address})`))
+  assert.equal(fs.readdirSync(path.join(root, 'media')).filter((file) => file.startsWith('hof')).length, 1)
 })
