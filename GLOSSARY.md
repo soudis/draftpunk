@@ -13,7 +13,7 @@ The name of one site instance. The editor shows it, and the public site uses it.
 _Avoid_: project name, title
 
 **Editor**:
-The authenticated chat for one site instance. Each person has their own chats. A reply may change the design and the content that fills it.
+The authenticated app for one site instance, with three views: the chat, the content browser, and the history. Each person has their own chats. A chat reply may change the design and the content that fills it. The content browser and the history work on the same shared draft.
 _Avoid_: chatbot, agent, Design mode, content mode
 
 **Draft**:
@@ -31,6 +31,10 @@ _Avoid_: deploy, merge
 **Undo**:
 Dropping the files written by the last reply that changed the draft, when no later change has edited those same files. The chat text stays. The public site stays until the next publish.
 _Avoid_: revert draft, reset
+
+**Restore**:
+Putting the draft's files back to how they were at an earlier change, as a new change on top of the history. Nothing is dropped from the history, so a restore can itself be restored. The editor lists what would change, in sentences, and writes only after that list is confirmed. The public site stays until the next publish.
+_Avoid_: revert, reset, rollback
 
 **Revert draft**:
 Putting the draft back to the public site, after asking, and discarding every unpublished change. The draft is shared, so this includes other people's unpublished changes.
