@@ -9,7 +9,7 @@ import { phraseChange } from '@/lib/correct-phrase'
 import { presentChatError } from '@/lib/api-error'
 import type { Block, Inline } from '@/lib/chat-markdown'
 import { parseChatMarkdown } from '@/lib/chat-markdown'
-import { chatPieces } from '@/lib/chat-pieces'
+import { chatPieces, madePictures } from '@/lib/chat-pieces'
 import type { EditorMode } from '@/lib/mode'
 import { uiText, type EditorLanguage } from '@/lib/ui-text'
 import { useEditorLanguage } from './language'
@@ -885,6 +885,19 @@ function ChatConversation({
               workShown = true
               return <WorkNotes key={index} language={language} entries={work.entries} lines={work.lines} />
             })}
+            {madePictures(message.parts).length > 0 && (
+              <div className="made-pictures">
+                {madePictures(message.parts).map((picture) => (
+                  <img
+                    key={picture.file}
+                    src={`/api/pictures/raw?file=${encodeURIComponent(picture.file)}&w=360`}
+                    alt={picture.file}
+                    title={picture.generated ? `${picture.file} — ${uiText(language, 'chat.generated')}` : picture.file}
+                    loading="lazy"
+                  />
+                ))}
+              </div>
+            )}
             {note && <p className="gaps">{uiText(language, 'chat.unchanged')}</p>}
             {message.role === 'assistant' && undoIds.includes(message.id) && (
               <button type="button" className="undo" title={uiText(language, 'chat.undoTitle')} disabled={busy || undoing} onClick={() => onUndo(message.id)}>

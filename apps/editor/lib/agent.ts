@@ -4,6 +4,7 @@ import { pruneHistory } from './history'
 import { isMechanicalStep } from './thinking'
 import type { EditorMode } from './mode'
 import { systemPrompt } from './prompt'
+import type { ResolvedImageSettings } from './image-settings'
 import { screenshotIds, ScreenshotStore } from './screenshots'
 import { toolsFor } from './tools'
 import { createVerifier } from './verify'
@@ -83,7 +84,7 @@ export function repairToolInput(toolCall: ToolCallInput): ToolCallInput | null {
   return { ...toolCall, input: JSON.stringify({ [INVALID_JSON]: true }) }
 }
 
-export const SCREENSHOT_TOOLS = new Set(['preview_page', 'look_at_picture', 'edit_picture', 'svg_extract', 'svg_edit', 'write_svg', 'trace_picture', 'render_graphic'])
+export const SCREENSHOT_TOOLS = new Set(['preview_page', 'look_at_picture', 'edit_picture', 'svg_extract', 'svg_edit', 'write_svg', 'trace_picture', 'render_graphic', 'generate_image'])
 
 /**
  * A tool result can only carry text to the model. A picture from preview_page, or from a tool that edits or draws a picture, is put in front of it
@@ -125,12 +126,14 @@ export function agentRun(
     onBadCall?: (call: BadCallInfo) => void
     /** The same model with thinking off, for the steps that only write content. */
     quietModel?: LanguageModel
+    /** The image service in force, when one is set up. */
+    image?: ResolvedImageSettings
   } = {},
 ): AgentRun {
   const screenshots = new ScreenshotStore()
   return {
     system: systemPrompt(mode, root, new Date(), { browser: browserConfigured(), vision: options.vision }),
-    tools: toolsFor(mode, root, { vision: options.vision, screenshots, verifier: createVerifier(), cacheDir: options.cacheDir }),
+    tools: toolsFor(mode, root, { vision: options.vision, screenshots, verifier: createVerifier(), cacheDir: options.cacheDir, image: options.image }),
     stopWhen: stepCountIs(STEP_LIMIT),
     maxOutputTokens: options.maxOutputTokens,
     prepareStep: ({ stepNumber, messages }) => ({

@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { imageSettingsPath, readStoredImageSettings, resolveImageSettings } from '@/lib/image-settings'
 import { convertToModelMessages, streamText, type UIMessage } from 'ai'
 import { commitAll } from '@/lib/git'
 import { chatErrorText } from '@/lib/api-error'
@@ -59,6 +60,7 @@ export async function POST(request: Request) {
       keepReasoning: needsReasoningPassBack(modelSettings.baseURL) && plan.thinking === 'default',
       maxOutputTokens: outputLimit(modelSettings.baseURL),
       quietModel: quietModelFor(modelSettings, plan),
+      image: resolveImageSettings(readStoredImageSettings(imageSettingsPath()), undefined, { baseURL: modelSettings.baseURL, apiKey: modelSettings.apiKey }),
       onBadCall: (call) => {
         try {
           recordBadCall(editorDatabase(), { sessionId, turn: userCount, ...call })

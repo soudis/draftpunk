@@ -31,6 +31,7 @@ const SITE_WRITES = new Set([
   'write_svg',
   'trace_picture',
   'render_graphic',
+  'generate_image',
 ])
 
 export function toolPartName(part: { type: string; toolName?: string }): string | undefined {

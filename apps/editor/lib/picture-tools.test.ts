@@ -102,3 +102,43 @@ test('an SVG the model writes is cleaned, checked and shown, and a refusal says 
   await assert.rejects(() => tools.write_svg.execute!({ svg: '<svg viewBox="0 0 1 1"><rect></svg>', name: 'kaputt' }, call), /That SVG cannot be kept/)
   await assert.rejects(() => tools.write_svg.execute!({ svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1">${'<path d="M0 0L1 1"/>'.repeat(12_000)}</svg>`, name: 'riesig' }, call), /Keep it under 200 KB/)
 })
+
+test('generate_image exists only with an image service, marks what it makes, and stops at four a reply', async () => {
+  const root = await site()
+  const store = new ScreenshotStore()
+  assert.equal(Object.keys(pictureTools(root, { image: { provider: '', baseURL: '', model: '', apiKey: '', configured: false } })).includes('generate_image'), false)
+  const png = await sharp({ create: { width: 64, height: 64, channels: 3, background: '#2060c0' } }).png().toBuffer()
+  const asked: unknown[] = []
+  const fetchApi = (async (_url: string, init: RequestInit) => {
+    asked.push(JSON.parse(String(init.body)))
+    return new Response(JSON.stringify({ data: [{ b64_json: png.toString('base64') }] }), { status: 200 })
+  }) as unknown as typeof fetch
+  const tools = pictureTools(root, {
+    vision: true,
+    screenshots: store,
+    image: { provider: 'openai', baseURL: 'https://api.openai.com/v1', model: 'gpt-image-1', apiKey: 'sk-test', configured: true },
+    imageDeps: { fetchApi },
+  })
+  assert.ok(tools.generate_image)
+  const answer = text(await tools.generate_image.execute!({ prompt: 'A courtyard at dusk, warm light', aspect: 'landscape', name: 'hof-abend', description: 'Der Hof am Abend' }, call))
+  assert.match(answer, /^Saved \/media\/hof-abend\.png, made by gpt-image-1 \(1536x1024\)\. It is a generated picture: tell the person so\. 64 × 64 px/)
+  assert.match(answer, /\[screenshot:s\d+\]/)
+  assert.deepEqual(asked[0], { model: 'gpt-image-1', prompt: 'A courtyard at dusk, warm light', n: 1, size: '1536x1024' })
+  const catalog = fs.readFileSync(path.join(root, 'media', 'pictures.yml'), 'utf8')
+  assert.match(catalog, /file: hof-abend\.png/)
+  assert.match(catalog, /generated:\n\s+prompt: A courtyard at dusk, warm light\n\s+service: openai gpt-image-1/)
+  assert.match(catalog, /description: Der Hof am Abend/)
+  for (const at of [2, 3, 4]) await tools.generate_image.execute!({ prompt: 'x', aspect: 'square', name: `bild-${at}` }, call)
+  await assert.rejects(() => tools.generate_image.execute!({ prompt: 'x', aspect: 'square', name: 'bild-5' }, call), /4 pictures were made in this reply already/)
+  assert.equal(asked.length, 4)
+  const refused = pictureTools(root, {
+    image: { provider: 'openai', baseURL: 'https://api.openai.com/v1', model: 'gpt-image-1', apiKey: 'k', configured: true },
+    imageDeps: { fetchApi: (async () => new Response(JSON.stringify({ error: { message: 'Billing hard limit reached' } }), { status: 400 })) as unknown as typeof fetch },
+  })
+  await assert.rejects(() => refused.generate_image.execute!({ prompt: 'x', aspect: 'square', name: 'nein' }, call), /Billing hard limit reached/)
+  const notAPicture = pictureTools(root, {
+    image: { provider: 'openai', baseURL: 'https://api.openai.com/v1', model: 'gpt-image-1', apiKey: 'k', configured: true },
+    imageDeps: { fetchApi: (async () => new Response(JSON.stringify({ data: [{ b64_json: Buffer.from('hello').toString('base64') }] }), { status: 200 })) as unknown as typeof fetch },
+  })
+  await assert.rejects(() => notAPicture.generate_image.execute!({ prompt: 'x', aspect: 'square', name: 'text' }, call), /did not give a picture/)
+})

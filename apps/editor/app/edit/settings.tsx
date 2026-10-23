@@ -128,6 +128,14 @@ function SuggestField({
   )
 }
 
+type ImageView = {
+  provider: string
+  baseURL: string
+  model: string
+  keySet: boolean
+  providers: { kind: string; name: string; baseURL: string; modelHint: string }[]
+}
+
 export function SettingsDrawer({
   siteName,
   language,
@@ -151,6 +159,8 @@ export function SettingsDrawer({
   const [contentModel, setContentModel] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [tokenSet, setTokenSet] = useState(false)
+  const [images, setImages] = useState<ImageView>({ provider: '', baseURL: '', model: '', keySet: false, providers: [] })
+  const [imageKey, setImageKey] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -169,6 +179,15 @@ export function SettingsDrawer({
         if (data.siteName) setName(data.siteName)
       })
       .catch(() => setError(t('settings.loadFailed')))
+  }, [])
+
+  useEffect(() => {
+    void fetch('/api/image-settings')
+      .then((response) => response.json())
+      .then((data: ImageView & { error?: string }) => {
+        if (!data.error) setImages({ provider: data.provider ?? '', baseURL: data.baseURL ?? '', model: data.model ?? '', keySet: data.keySet === true, providers: data.providers ?? [] })
+      })
+      .catch(() => undefined)
   }, [])
 
   useEffect(() => {
@@ -191,6 +210,16 @@ export function SettingsDrawer({
       const data = (await response.json()) as { error?: string; siteName?: string; tokenSet?: boolean }
       if (!response.ok || data.error || !data.siteName) {
         setError(data.error ?? t('settings.saveFailed'))
+        return
+      }
+      const imageResponse = await fetch('/api/image-settings', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider: images.provider, baseURL: images.baseURL, model: images.model, apiKey: imageKey }),
+      })
+      const imageData = (await imageResponse.json()) as { error?: string }
+      if (!imageResponse.ok || imageData.error) {
+        setError(imageData.error ?? t('settings.saveFailed'))
         return
       }
       onSaved({ siteName: data.siteName, tokenSet: data.tokenSet === true })
@@ -284,6 +313,54 @@ export function SettingsDrawer({
                 onChange={(event) => setApiKey(event.target.value)}
               />
             </label>
+          </section>
+          <section className="drawer-section">
+            <h3>{t('settings.images')}</h3>
+            <p className="drawer-help">{t('settings.imagesHelp')}</p>
+            <label>
+              {t('settings.imageService')}
+              <select
+                value={images.provider}
+                onChange={(event) => {
+                  const provider = images.providers.find((item) => item.kind === event.target.value)
+                  setImages({ ...images, provider: event.target.value, baseURL: provider?.baseURL ?? '' })
+                }}
+              >
+                <option value="">{t('settings.imageNone')}</option>
+                {images.providers.map((item) => (
+                  <option key={item.kind} value={item.kind}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {images.provider && (
+              <>
+                <label>
+                  {t('settings.imageAddress')}
+                  <input value={images.baseURL} onChange={(event) => setImages({ ...images, baseURL: event.target.value })} />
+                </label>
+                <label>
+                  {t('settings.imageModel')}
+                  <input
+                    value={images.model}
+                    placeholder={images.providers.find((item) => item.kind === images.provider)?.modelHint ?? ''}
+                    onChange={(event) => setImages({ ...images, model: event.target.value })}
+                  />
+                </label>
+                <label>
+                  {t('settings.token')}
+                  <input
+                    type="password"
+                    value={imageKey}
+                    autoComplete="off"
+                    placeholder={images.keySet ? t('settings.tokenKeep') : t('settings.tokenEnter')}
+                    onChange={(event) => setImageKey(event.target.value)}
+                  />
+                </label>
+                {images.provider === 'runware' && <p className="drawer-help">{t('settings.imageKeyShared')}</p>}
+              </>
+            )}
           </section>
           {error && <p className="picture-error" role="alert">{error}</p>}
         </div>

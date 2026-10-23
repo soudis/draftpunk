@@ -67,3 +67,18 @@ function toolLabel(name: string): string {
   const words = name.replaceAll('_', ' ')
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
+
+/** The tools whose result is a new picture in the media library. */
+const PICTURE_MAKERS = new Set(['edit_picture', 'svg_extract', 'svg_edit', 'write_svg', 'trace_picture', 'render_graphic', 'generate_image'])
+
+/** The pictures the agent made in this message, by file name in the media library, in the order it made them. */
+export function madePictures(parts: Part[]): { file: string; generated: boolean }[] {
+  const found = new Map<string, boolean>()
+  for (const part of parts) {
+    const name = toolPartName(part)
+    if (!name || !PICTURE_MAKERS.has(name) || part.state !== 'output-available' || typeof part.output !== 'string') continue
+    const file = /^Saved \/media\/([\w./-]+\.(?:png|jpe?g|webp|gif|svg))(?=[,. ]|$)/i.exec(part.output)?.[1]
+    if (file) found.set(file, name === 'generate_image')
+  }
+  return [...found.entries()].map(([file, generated]) => ({ file, generated }))
+}

@@ -24,6 +24,7 @@ import { auditPage, pagePath, type ViewportName } from './page-audit'
 import { documentOpacityRefusal } from './page-opacity'
 import { pictureForVision, suggestPicture } from './picture-vision'
 import { pictureTools } from './picture-tools'
+import type { ResolvedImageSettings } from './image-settings'
 import { detectPicture, discardPicture, fitPicture, pictureByOrigin, picturesWithoutWords, readPicture, readPictureBytes, searchPictures, setPictureAlt, setPictureDescription, stemFromFilename, storePicture } from './pictures'
 import { fetchPublicBytes, readWebsite } from './read-website'
 import { screenshotMarker, ScreenshotStore } from './screenshots'
@@ -793,6 +794,8 @@ export type ToolOptions = {
   cacheDir?: string
   /** How a public site is reached. The default only reaches public addresses. */
   fetchPage?: FetchPage
+  /** The image service in force, when one is set up. */
+  image?: ResolvedImageSettings
 }
 
 export function designTools(root: string, options: ToolOptions = {}): ToolSet {

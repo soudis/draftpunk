@@ -2,10 +2,12 @@ import type { ToolSet } from 'ai'
 import { z } from 'zod'
 import { editSvg, extractSvg, fitSvg, generate, outlineSvg } from '@schlor/generator'
 import { browserConfigured } from './browser'
+import { ASPECTS, generateImage, type ImageDeps } from './image-gen'
+import type { ResolvedImageSettings } from './image-settings'
 import { MAX_HTML, renderGraphic } from './graphic'
 import { potraceAvailable, tracePicture } from './picture-trace'
 import { editRaster, OPERATIONS, pictureForModel, visibleBounds, type PictureOp } from './picture-edit'
-import { detectPicture, noteMadeFrom, readPicture, readPictureBytes, stemFromFilename, storePicture, type PictureKind, type PictureRecord } from './pictures'
+import { detectPicture, noteGenerated, noteMadeFrom, readPicture, readPictureBytes, stemFromFilename, storePicture, type PictureKind, type PictureRecord } from './pictures'
 import { screenshotMarker, ScreenshotStore } from './screenshots'
 import { defineTool, fail } from './tool-kit'
 import type { ToolOptions } from './tools'
@@ -65,8 +67,14 @@ function kindOf(bytes: Uint8Array): PictureKind {
 
 const nameFor = (record: PictureRecord, name: string | undefined, suffix: string) => stemFromFilename(name?.trim() || `${record.file.replace(/\.[^.]+$/, '').replaceAll('/', '-')}-${suffix}`)
 
-export function pictureTools(root: string, options: ToolOptions = {}): ToolSet {
+/** Pictures an image service may make in one reply: it costs money, so the person is asked before more. */
+export const MAX_GENERATED = 4
+
+export function pictureTools(root: string, options: ToolOptions & { image?: ResolvedImageSettings; imageDeps?: ImageDeps } = {}): ToolSet {
   const screenshots = options.screenshots ?? new ScreenshotStore()
+  // The settings come from whoever builds the tools (the chat route reads them); without them there is no image service.
+  const image = options.image ?? { provider: '' as const, baseURL: '', model: '', apiKey: '', configured: false }
+  let generated = 0
 
   const open = (file: string) => {
     const record = readPicture(root, file)
@@ -233,6 +241,33 @@ export function pictureTools(root: string, options: ToolOptions = {}): ToolSet {
         return `Saved ${saved.address}, traced from ${record.address}: ${traced.paths} paths in ${traced.layers} ${traced.layers === 1 ? 'layer' : 'layers'}, ${Math.max(1, Math.round(traced.bytes / 1000))} KB, colours ${traced.colors.join(', ')}.${heavy}${traced.hint ? ` ${traced.hint}` : ''} ${shown.line}${shown.marker}`
       },
     }),
+    ...(image.configured
+      ? {
+          generate_image: defineTool('generate_image', {
+            description: `Make a new picture from a description with the image service set up for this site (${image.provider}, ${image.model}). It costs money and the prompt goes to a third party, so use it when the person wants a picture that does not exist yet, and not for a logo, an icon, a pattern or words (use write_svg, trace_picture or render_graphic for those). One picture a call, at most ${MAX_GENERATED} in a reply: ask the person before making more. Write the prompt in English and make it concrete: the subject, the setting, the style, the light, and no words in the picture. aspect is square, landscape (3:2), wide (16:9), portrait (2:3) or tall (9:16). width is the width the picture will have on a page, in CSS pixels, when you know it: a service that takes pixels makes it that wide, another makes its nearest size. The result is a new picture, marked as generated: tell the person plainly that it is generated. You see it in the next step.`,
+            input: z.object({
+              prompt: z.string().describe('Required. What the picture shows, in English, concrete.'),
+              aspect: z.enum(ASPECTS).describe('Required. square, landscape, wide, portrait or tall.'),
+              name: z.string().describe('Required. A name for the picture, in lowercase words with hyphens.'),
+              width: z.number().int().min(64).max(4096).optional().describe('Optional. The width on the page, in CSS pixels.'),
+              description: z.string().optional().describe('Optional. What the picture shows, in a few words, in the language of the site (it becomes its alt text).'),
+              replace: z.boolean().optional().describe('Optional. Overwrite a picture of that name. Only when the person asks.'),
+            }),
+            execute: async ({ prompt, aspect, name, width, description, replace }) => {
+              if (generated >= MAX_GENERATED) fail(`${MAX_GENERATED} pictures were made in this reply already. Ask the person whether to make more.`)
+              const made = await generateImage(image, { prompt, aspect, width }, options.imageDeps)
+              const kind = detectPicture(made.bytes)
+              if (!kind || kind === 'svg') fail('The image service did not give a picture I can keep.')
+              generated += 1
+              const saved = storePicture(root, { bytes: made.bytes, filename: stemFromFilename(name), replace: replace === true, description: description ?? '' })
+              noteGenerated(root, saved.file, { prompt, service: `${image.provider} ${made.service}` })
+              generate(root)
+              const shown = await show(made.bytes, kind, false)
+              return `Saved ${saved.address}, made by ${made.service} (${made.size}). It is a generated picture: tell the person so. ${shown.line}${shown.marker}`
+            },
+          }),
+        }
+      : {}),
     ...(browserConfigured()
       ? {
           render_graphic: defineTool('render_graphic', {
