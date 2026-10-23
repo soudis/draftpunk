@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import * as client from 'openid-client'
 import { oidcConfiguration } from '@/lib/oidc'
 import { appUrl, oidcCallbackUrl } from '@/lib/public-url'
-import { httpsPicture, sealSession } from '@/lib/session'
+import { httpsPicture, identityFrom, sealSession } from '@/lib/session'
 
 export async function GET(request: NextRequest) {
   const stored = request.cookies.get('schlor_oidc')?.value
@@ -22,11 +22,12 @@ export async function GET(request: NextRequest) {
   }
   const claims = tokens.claims()
   if (!claims?.sub) return NextResponse.json({ error: 'Login did not return a subject' }, { status: 400 })
-  const picture = httpsPicture(claims.picture)
+  // Some providers keep the profile out of the ID token and give it only at the userinfo endpoint.
+  const userinfo = await profileFrom(config, tokens.access_token, claims.sub)
+  const picture = httpsPicture(claims.picture ?? userinfo.picture)
   const token = await sealSession({
     sub: claims.sub,
-    name: String(claims.name ?? claims.preferred_username ?? claims.email ?? 'Editor'),
-    email: String(claims.email ?? `${claims.sub}@schlor.local`),
+    ...identityFrom(claims.sub, claims, userinfo),
     exp: Date.now() + 12 * 60 * 60 * 1000,
     ...(picture ? { picture } : {}),
   })
@@ -34,6 +35,16 @@ export async function GET(request: NextRequest) {
   response.cookies.set('schlor_editor', token, sessionCookie())
   response.cookies.set('schlor_oidc', '', { path: '/auth', maxAge: 0 })
   return response
+}
+
+async function profileFrom(config: client.Configuration, accessToken: string, sub: string) {
+  try {
+    return await client.fetchUserInfo(config, accessToken, sub)
+  } catch (error) {
+    // The login still works with what the ID token had.
+    console.error(error)
+    return {} as Record<string, unknown>
+  }
 }
 
 function sessionCookie() {

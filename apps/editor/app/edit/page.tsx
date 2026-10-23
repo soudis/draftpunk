@@ -20,7 +20,7 @@ export default async function EditPage() {
   return (
     <ChatPanel
       siteName={site.name}
-      accountName={session?.name ?? 'Editor'}
+      accountName={session?.name ?? ''}
       accountPicture={session?.picture}
       gapCount={gaps.length}
       gapSample={gaps.slice(0, 6)}

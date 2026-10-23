@@ -28,6 +28,10 @@ _Avoid_: production build, live site
 Making the draft the public site. The editor lists what would change, in sentences, and writes only after that list is confirmed.
 _Avoid_: deploy, merge
 
+**Author**:
+The person who made a change of the draft, shown by their real name from the identity provider, with their email beside it in the history. When the provider gives no name, the email is shown, and failing that a short form of their identity. Changes made before names were read stay under the name they were saved with.
+_Avoid_: user, account, Editor (as a name)
+
 **Undo**:
 Taking back what one change of the draft did, when no later change has edited those same files. In the chat it is offered under a reply that changed the draft; in the history it works for any change. The chat text stays. The public site stays until the next publish.
 _Avoid_: revert draft, reset

@@ -31,6 +31,7 @@ test('the history is the draft newest first, with the public site and the newest
   assert.equal(entries[3].isPublic, true)
   assert.deepEqual(entries.map((entry) => entry.kind), ['edit', 'edit', 'reply', 'initial'])
   assert.equal(entries[2].author, 'Alex')
+  assert.equal(entries[2].authorEmail, 'alex@example.org')
   assert.equal(listHistory(root, 1, 2).entries.length, 2)
 })
 

@@ -81,7 +81,7 @@ export function HistoryList({
                   {entry.isPublic && <span className="pill public">{t('history.public')}</span>}
                 </span>
                 <span className="commit-subject">{entry.subject}</span>
-                <span className="commit-meta">
+                <span className="commit-meta" title={entry.authorEmail}>
                   {t('history.by', { name: entry.author })} · {when(entry.date, language)}
                 </span>
               </button>
@@ -212,7 +212,7 @@ export function CommitView({
         {entry && detail && (
           <>
             <h2 className="commit-title">{entry.subject}</h2>
-            <p className="commit-meta">
+            <p className="commit-meta" title={entry.authorEmail}>
               {t('history.by', { name: entry.author })} · {when(entry.date, language)} · <code>{entry.short}</code>
             </p>
             <div className="commit-actions">

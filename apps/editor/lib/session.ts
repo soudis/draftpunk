@@ -17,6 +17,25 @@ export function httpsPicture(value: unknown): string | undefined {
   }
 }
 
+type IdentityClaims = Record<string, unknown>
+
+function text(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+/** Who signed in: the ID token's claims first, then what the provider's userinfo adds. Never a name that is the same for everyone. */
+export function identityFrom(sub: string, claims: IdentityClaims, userinfo: IdentityClaims = {}): { name: string; email: string } {
+  const email = text(claims.email) ?? text(userinfo.email)
+  const name =
+    text(claims.name) ??
+    text(claims.preferred_username) ??
+    text(userinfo.name) ??
+    text(userinfo.preferred_username) ??
+    email ??
+    sub.slice(0, 8)
+  return { name, email: email ?? `${sub}@schlor.local` }
+}
+
 const encoder = new TextEncoder()
 
 export function sessionSecret(): string {

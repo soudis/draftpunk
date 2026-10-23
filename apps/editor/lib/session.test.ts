@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { httpsPicture, openSession, sealSession, type EditorSession } from './session'
+import { httpsPicture, identityFrom, openSession, sealSession, type EditorSession } from './session'
 
 test('a sealed session opens as the same person', async () => {
   const session: EditorSession = {
@@ -32,4 +32,13 @@ test('an https account picture is kept', async () => {
     'test-secret',
   )
   assert.equal(blocked?.picture, undefined)
+})
+
+test('the name comes from the ID token, then the userinfo, and is never the same for everyone', () => {
+  assert.deepEqual(identityFrom('abc', { name: 'Ada', email: 'ada@x.org' }), { name: 'Ada', email: 'ada@x.org' })
+  assert.deepEqual(identityFrom('abc', {}, { name: 'Bo', email: 'bo@x.org' }), { name: 'Bo', email: 'bo@x.org' })
+  assert.equal(identityFrom('abc', { preferred_username: 'ada' }, { name: 'Bo' }).name, 'ada')
+  assert.equal(identityFrom('abc', {}, { email: 'cy@x.org' }).name, 'cy@x.org')
+  assert.deepEqual(identityFrom('0123456789', {}), { name: '01234567', email: '0123456789@schlor.local' })
+  assert.equal(identityFrom('abc', { name: '  ' }).name, 'abc')
 })

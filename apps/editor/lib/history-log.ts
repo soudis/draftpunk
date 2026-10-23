@@ -8,6 +8,8 @@ export type HistoryEntry = {
   revision: string
   short: string
   author: string
+  /** The email the change was made under; it tells apart two people with the same name. */
+  authorEmail: string
   date: string
   subject: string
   kind: HistoryKind
@@ -52,7 +54,7 @@ export function listHistory(root: string, skip = 0, limit = 50): { entries: Hist
     'draft',
     `--skip=${Math.max(0, skip)}`,
     `--max-count=${Math.min(200, Math.max(1, limit))}`,
-    `--format=%H%x1f%an%x1f%aI%x1f%s%x1f%(trailers:key=${KIND_TRAILER},valueonly,separator=%x2c)%x1e`,
+    `--format=%H%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%(trailers:key=${KIND_TRAILER},valueonly,separator=%x2c)%x1e`,
   ])
   const headRevision = git(root, ['rev-parse', 'draft']).trim()
   const entries = raw
@@ -60,11 +62,12 @@ export function listHistory(root: string, skip = 0, limit = 50): { entries: Hist
     .map((record) => record.replace(/^\n/, ''))
     .filter((record) => record.trim())
     .map((record) => {
-      const [revision, author, date, subject, trailer] = record.split('\x1f')
+      const [revision, author, authorEmail, date, subject, trailer] = record.split('\x1f')
       return {
         revision,
         short: revision.slice(0, 7),
         author,
+        authorEmail,
         date,
         subject,
         kind: kindOf(subject, trailer ?? ''),
@@ -83,12 +86,13 @@ export function commitDetail(root: string, revision: string): { entry: HistoryEn
 }
 
 function singleEntry(root: string, revision: string): HistoryEntry {
-  const raw = git(root, ['show', '-s', `--format=%an%x1f%aI%x1f%s%x1f%(trailers:key=${KIND_TRAILER},valueonly,separator=%x2c)`, revision]).replace(/\n$/, '')
-  const [author, date, subject, trailer] = raw.split('\x1f')
+  const raw = git(root, ['show', '-s', `--format=%an%x1f%ae%x1f%aI%x1f%s%x1f%(trailers:key=${KIND_TRAILER},valueonly,separator=%x2c)`, revision]).replace(/\n$/, '')
+  const [author, authorEmail, date, subject, trailer] = raw.split('\x1f')
   return {
     revision,
     short: revision.slice(0, 7),
     author,
+    authorEmail,
     date,
     subject,
     kind: kindOf(subject, trailer ?? ''),
