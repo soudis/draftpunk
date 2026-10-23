@@ -29,12 +29,20 @@ Making the draft the public site. The editor lists what would change, in sentenc
 _Avoid_: deploy, merge
 
 **Undo**:
-Dropping the files written by the last reply that changed the draft, when no later change has edited those same files. The chat text stays. The public site stays until the next publish.
+Taking back what one change of the draft did, when no later change has edited those same files. In the chat it is offered under a reply that changed the draft; in the history it works for any change. The chat text stays. The public site stays until the next publish.
 _Avoid_: revert draft, reset
 
 **Restore**:
 Putting the draft's files back to how they were at an earlier change, as a new change on top of the history. Nothing is dropped from the history, so a restore can itself be restored. The editor lists what would change, in sentences, and writes only after that list is confirmed. The public site stays until the next publish.
 _Avoid_: revert, reset, rollback
+
+**History**:
+The changes of the draft, newest first, each with who made it, when, what it was (a chat reply, a hand edit, a publish, a restore, an undo, a picture), and the files it touched in sentences. It marks the change the public site is at. The history is a line: nothing branches.
+_Avoid_: log, versions, git tree
+
+**Content browser**:
+The part of the editor where a person finds a page, an event, a place, the home news or the redirects, and edits what it says in a form with one input per slot. Texts in Markdown are edited with syntax highlighting. The design's texts (brief, rules, references) are listed there to be read, not edited. A save is one change of the draft.
+_Avoid_: content editor, file manager, CMS
 
 **Revert draft**:
 Putting the draft back to the public site, after asking, and discarding every unpublished change. The draft is shared, so this includes other people's unpublished changes.
