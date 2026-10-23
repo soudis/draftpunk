@@ -106,7 +106,7 @@ export async function POST(request: Request) {
       const revision = commitAll(root, text && 'text' in text ? text.text : 'Editor change', {
         name: session.name,
         email: session.email,
-      })
+      }, 'reply')
       const assistant = [...messages].reverse().find((message) => message.role === 'assistant')
       if (revision && assistant?.id) rememberReply(sessionId, assistant.id, revision)
       // A chat leaves setup when the setup is accepted, by the agent or by the person.

@@ -63,6 +63,38 @@ export function describeDraftChange(
   return `${pageVerb(status)} ${file}`
 }
 
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+
+/** The revision a change started from: its parent, or the empty tree for the first commit. */
+export function parentOf(root: string, revision: string): string {
+  try {
+    return git(root, ['rev-parse', '--verify', '--quiet', `${revision}^`]).trim()
+  } catch {
+    return EMPTY_TREE
+  }
+}
+
+export type RevisionChange = { file: string; status: ChangeStatus; sentence: string }
+
+/** What going from one revision to another changes, file by file, each with the sentence the publish list would use. */
+export function revisionChanges(root: string, from: string, to: string): RevisionChange[] {
+  const languages = readSiteConfig(root).languages
+  return parseNameStatus(git(root, ['diff', '--name-status', '--no-renames', from, to]))
+    .filter((entry) => !ignored(entry.file))
+    .map((entry) => {
+      const source = entry.file.startsWith('media/') && entry.file !== 'media/pictures.yml' ? '' : sourceAt(root, entry.status === 'D' ? from : to, entry.file)
+      return { ...entry, sentence: describeDraftChange(entry.file, entry.status, source, languages) }
+    })
+}
+
+function sourceAt(root: string, revision: string, file: string): string {
+  try {
+    return git(root, ['show', `${revision}:${file}`])
+  } catch {
+    return ''
+  }
+}
+
 function listDraftDiff(root: string): { status: ChangeStatus; file: string }[] {
   const tracked = parseNameStatus(git(root, ['diff', '--name-status', '--no-renames', 'main']))
   const untracked = lines(git(root, ['ls-files', '--others', '--exclude-standard'])).map((file) => ({

@@ -10,7 +10,7 @@ export function publishSite(root: string, author: GitAuthor, message: string): {
   if (gaps.length > 0) {
     throw new Error(`Required languages are missing before publish. Missing: ${gaps.slice(0, 8).join(', ')}`)
   }
-  commitAll(root, message, author)
+  commitAll(root, message, author, 'publish')
   pointPublishedAtDraft(root)
   generate(root, publishedDir(root), { hints: false })
   return { revision: git(root, ['rev-parse', 'main']).trim() }

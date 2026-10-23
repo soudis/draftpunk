@@ -5,14 +5,26 @@ const TEXT = new Set(['.md', '.yml', '.yaml'])
 const MATCH_LIMIT = 40
 const LINE_LIMIT = 180
 
+export type ContentHit = { file: string; line: number; text: string }
+
 export function searchContent(root: string, query: string): string {
   const needle = query.trim().replace(/\s+/g, ' ')
   if (needle.length < 2) return 'Pass a phrase of at least two characters to search pages, events, and places.'
+  if (!fs.existsSync(path.join(root, 'content'))) return 'No content to search.'
+  const { hits, extra } = searchContentHits(root, needle)
+  if (hits.length === 0) return `No content matches ${needle}.`
+  const more = extra > 0 ? `\n\nAnd ${extra} more matches. Narrow the query.` : ''
+  return `${hits.map((hit) => `${hit.file}:${hit.line}: ${hit.text}`).join('\n')}${more}`
+}
+
+/** The matching lines of the content files, each with its file and line. */
+export function searchContentHits(root: string, query: string): { hits: ContentHit[]; extra: number } {
+  const needle = query.trim().replace(/\s+/g, ' ')
   const folded = needle.toLowerCase()
   const dir = path.join(root, 'content')
-  if (!fs.existsSync(dir)) return 'No content to search.'
-  const hits: string[] = []
+  const hits: ContentHit[] = []
   let extra = 0
+  if (needle.length < 2 || !fs.existsSync(dir)) return { hits, extra }
   const walk = (current: string) => {
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
       const full = path.join(current, entry.name)
@@ -29,14 +41,12 @@ export function searchContent(root: string, query: string): string {
           extra += 1
           continue
         }
-        hits.push(`${rel}:${index + 1}: ${snippet(lines[index], folded)}`)
+        hits.push({ file: rel, line: index + 1, text: snippet(lines[index], folded) })
       }
     }
   }
   walk(dir)
-  if (hits.length === 0) return `No content matches ${needle}.`
-  const more = extra > 0 ? `\n\nAnd ${extra} more matches. Narrow the query.` : ''
-  return `${hits.join('\n')}${more}`
+  return { hits, extra }
 }
 
 function snippet(line: string, foldedNeedle: string): string {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { streamText } from 'ai'
+import { streamText, type UIMessage } from 'ai'
 import { MockLanguageModelV2, simulateReadableStream } from 'ai/test'
 
 // Undo finds a reply's commit by the id the server saw when the chat finished, so that id has to exist.
@@ -20,7 +20,7 @@ async function finishedIds(generateMessageId?: () => string): Promise<(string | 
   const result = streamText({ model, prompt: 'hi' })
   let ids: (string | undefined)[] = []
   const response = result.toUIMessageStreamResponse({
-    originalMessages: [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
+    originalMessages: [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] } as UIMessage],
     generateMessageId,
     onFinish: async ({ messages }) => {
       ids = messages.filter((message) => message.role === 'assistant').map((message) => message.id)

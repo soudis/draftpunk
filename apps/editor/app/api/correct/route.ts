@@ -23,7 +23,7 @@ export async function POST(request: Request) {
   if (!result.changed) return Response.json({ ok: true })
   try {
     generate(root)
-    commitPath(root, result.file, `Corrected text in ${result.file}`, { name: session.name, email: session.email })
+    commitPath(root, result.file, `Corrected text in ${result.file}`, { name: session.name, email: session.email }, 'edit')
   } catch (error) {
     const message = error instanceof Error ? error.message : 'That text could not be corrected.'
     return Response.json({ error: message }, { status: 400 })

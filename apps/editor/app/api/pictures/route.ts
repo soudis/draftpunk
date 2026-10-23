@@ -22,7 +22,7 @@ export async function POST(request: Request) {
       bytes: new Uint8Array(await file.arrayBuffer()),
       filename: file.name || 'picture',
     })
-    commitAll(siteRoot(), `Save picture ${saved.file}`, { name: session.name, email: session.email })
+    commitAll(siteRoot(), `Save picture ${saved.file}`, { name: session.name, email: session.email }, 'picture')
     return Response.json(saved, { status: 201 })
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : 'Could not save that picture.' }, { status: 400 })
@@ -40,7 +40,7 @@ export async function PATCH(request: Request) {
       description: body.description ?? '',
       tags: body.tags ?? [],
     })
-    commitAll(siteRoot(), `Update picture ${saved.file}`, { name: session.name, email: session.email })
+    commitAll(siteRoot(), `Update picture ${saved.file}`, { name: session.name, email: session.email }, 'picture')
     return Response.json(saved)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Could not update that picture.'
@@ -55,7 +55,7 @@ export async function DELETE(request: Request) {
   if (!body.file) return Response.json({ error: 'Unknown picture.' }, { status: 404 })
   try {
     discardPicture(siteRoot(), body.file)
-    commitAll(siteRoot(), `Discard picture ${body.file}`, { name: session.name, email: session.email })
+    commitAll(siteRoot(), `Discard picture ${body.file}`, { name: session.name, email: session.email }, 'picture')
     return Response.json({ ok: true })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Could not discard that picture.'

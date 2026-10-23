@@ -15,16 +15,8 @@ export function undoReply(
     clearReplyCommit(database, messageId)
     return { undone: false, error: 'That reply is no longer in the draft.' }
   }
-  const own = new Set(commitFiles(root, row.revision))
-  const overlap = filesChangedSince(root, row.revision).filter((file) => own.has(file))
-  if (overlap.length > 0) {
-    return { undone: false, error: `A later change edited ${overlap.slice(0, 3).join(', ')}.` }
-  }
-  try {
-    undoRevision(root, row.revision, author)
-  } catch {
-    return { undone: false, error: 'That reply could not be undone.' }
-  }
+  const result = undoRevisionChecked(root, author, row.revision)
+  if (!result.undone) return result
   clearReplyCommit(database, messageId)
   return { undone: true }
 }
@@ -36,4 +28,19 @@ export function revertDraft(root: string, database: Database.Database = editorDa
   revertDraftToPublic(root)
   clearReplyCommits(database)
   return { reverted: true }
+}
+
+/** Revert one change of the draft, as long as no later change edited the files it changed. */
+export function undoRevisionChecked(root: string, author: GitAuthor, revision: string): { undone: true } | { undone: false; error: string } {
+  const own = new Set(commitFiles(root, revision))
+  const overlap = filesChangedSince(root, revision).filter((file) => own.has(file))
+  if (overlap.length > 0) {
+    return { undone: false, error: `A later change edited ${overlap.slice(0, 3).join(', ')}.` }
+  }
+  try {
+    undoRevision(root, revision, author)
+  } catch {
+    return { undone: false, error: 'That change could not be undone.' }
+  }
+  return { undone: true }
 }
