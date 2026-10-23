@@ -4,7 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { rewritePreviewUrls, siteDecision, toPreviewPath } from './site-route'
-import { serveGenerated } from './site-serve'
+import zlib from 'node:zlib'
+import { chooseEncoding, serveGenerated } from './site-serve'
 
 test('visitors get the published site, and the draft stays behind the preview', () => {
   assert.deepEqual(siteDecision('/', false), { type: 'rewrite', pathname: '/api/site/index.html' })
@@ -56,4 +57,64 @@ test('a published file is served as itself, and a draft file is served only from
   const missing = serveGenerated(path.join(root, 'empty'), '', false)
   assert.equal(missing.status, 404)
   assert.match(await missing.text(), /has not been published/)
+})
+
+test('the encoding is the best one the browser accepts, and none when it accepts neither', () => {
+  assert.equal(chooseEncoding('gzip, deflate, br, zstd'), 'br')
+  assert.equal(chooseEncoding('gzip, deflate'), 'gzip')
+  assert.equal(chooseEncoding('br;q=0, gzip'), 'gzip')
+  assert.equal(chooseEncoding('gzip;q=0'), null)
+  assert.equal(chooseEncoding('identity'), null)
+  assert.equal(chooseEncoding('*'), 'br')
+  assert.equal(chooseEncoding(null), null)
+})
+
+test('the public site sends text compressed, with a validator, and the right type for every kind of file', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'schlor-gzip-'))
+  const html = `<html>${'<p>Wohnen im Hof, gemeinsam und laut.</p>'.repeat(100)}</html>`
+  fs.writeFileSync(path.join(root, 'index.html'), html)
+  fs.writeFileSync(path.join(root, 'robots.txt'), 'User-agent: *\n'.repeat(80))
+  fs.writeFileSync(path.join(root, 'sitemap.xml'), '<urlset>' + '<url><loc>https://x.org/a/</loc></url>'.repeat(40) + '</urlset>')
+  fs.writeFileSync(path.join(root, 'tiny.css'), 'a{}')
+  fs.mkdirSync(path.join(root, 'media'))
+  fs.writeFileSync(path.join(root, 'media', 'hof.png'), Buffer.alloc(5000, 7))
+  const ask = (file: string, accept?: string, extra: Record<string, string> = {}) =>
+    serveGenerated(root, file, false, new Request('http://x.test/' + file, { headers: { ...(accept ? { 'accept-encoding': accept } : {}), ...extra } }))
+
+  const gzipped = ask('index.html', 'gzip')
+  assert.equal(gzipped.headers.get('content-encoding'), 'gzip')
+  assert.equal(gzipped.headers.get('vary'), 'Accept-Encoding')
+  assert.equal(zlib.gunzipSync(Buffer.from(await gzipped.arrayBuffer())).toString(), html)
+  const brotli = ask('index.html', 'gzip, br')
+  assert.equal(brotli.headers.get('content-encoding'), 'br')
+  assert.equal(zlib.brotliDecompressSync(Buffer.from(await brotli.arrayBuffer())).toString(), html)
+  assert.ok(Number(brotli.headers.get('content-length')) < html.length / 5)
+  // A browser that accepts nothing gets the file as it is.
+  const plain = ask('index.html')
+  assert.equal(plain.headers.get('content-encoding'), null)
+  assert.equal(await plain.text(), html)
+
+  // The validator makes the second visit cheap, and differs per encoding.
+  const etag = gzipped.headers.get('etag') as string
+  assert.notEqual(etag, brotli.headers.get('etag'))
+  assert.equal(ask('index.html', 'gzip', { 'if-none-match': etag }).status, 304)
+  assert.equal(ask('index.html', 'br', { 'if-none-match': etag }).status, 200)
+
+  // The type is the file's own, not a download.
+  assert.match(ask('robots.txt').headers.get('content-type') ?? '', /^text\/plain/)
+  assert.match(ask('sitemap.xml').headers.get('content-type') ?? '', /^application\/xml/)
+  // A small file and a picture are not compressed; a picture may be kept for a day.
+  assert.equal(ask('tiny.css', 'gzip').headers.get('content-encoding'), null)
+  const picture = ask('media/hof.png', 'gzip, br')
+  assert.equal(picture.headers.get('content-encoding'), null)
+  assert.equal(picture.headers.get('cache-control'), 'public, max-age=86400')
+  assert.equal(ask('index.html', 'gzip').headers.get('cache-control'), 'no-cache')
+})
+
+test('the preview is never compressed or kept', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'schlor-gzip-preview-'))
+  fs.writeFileSync(path.join(root, 'index.html'), '<p>x</p>'.repeat(300))
+  const response = serveGenerated(root, 'index.html', true, new Request('http://x.test/', { headers: { 'accept-encoding': 'gzip, br' } }))
+  assert.equal(response.headers.get('content-encoding'), null)
+  assert.equal(response.headers.get('cache-control'), 'no-cache')
 })
