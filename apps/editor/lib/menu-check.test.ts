@@ -97,7 +97,8 @@ test('the starter menu opens its groups on hover and keyboard focus', { skip: CH
     assert.match(html, /class="menu-group"[\s\S]*class="submenu[^"]*"[\s\S]*Wer wir sind/)
     assert.equal(html.includes('<summary'), false)
     // The check is not blind to this menu: with the hover rule undone, the same page is reported.
-    const css = path.join(root, 'dist', 'assets', 'styles.css')
+    // The pages link the stylesheet by the name its content gives it.
+    const css = path.join(root, 'dist', 'assets', fs.readdirSync(path.join(root, 'dist', 'assets')).find((name) => /^styles\.[0-9a-f]{10}\.css$/.test(name)) as string)
     fs.appendFileSync(css, '\n.menu-group:hover > .submenu,.menu-group:focus-within > .submenu{opacity:0 !important}\n')
     const broken = await auditPage(root, '/', 'desktop')
     assert.match(broken.findings.join(' '), /menu entry “Über uns” \(Wer wir sind, Organisation\) stay hidden/)

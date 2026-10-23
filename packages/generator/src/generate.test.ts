@@ -32,7 +32,9 @@ import {
   writePage,
 } from './index'
 import sharp from 'sharp'
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { checkSite } from './check-site'
+import { upgradeAdvice } from './upgrade'
 import { scopeLayoutCss } from './layouts'
 import { hasTransparency } from './baseline'
 import { searchIndexJson, searchText, textLimit } from './search'
@@ -718,15 +720,6 @@ test('the search index holds pages, posts and events in each language, and the s
   assert.match(sitemap, /\/werkstatt\//)
 })
 
-test('a site made before the search has neither its page nor its index', () => {
-  const root = newSite('housing-no-search-')
-  fs.rmSync(path.join(root, 'design', 'layouts', 'search'), { recursive: true, force: true })
-  const result = generate(root)
-  assert.equal(fs.existsSync(path.join(result.outDir, 'search-index.de.json')), false)
-  assert.equal(fs.existsSync(path.join(result.outDir, 'suche', 'index.html')), false)
-  assert.equal(fs.readFileSync(path.join(result.outDir, 'index.html'), 'utf8').includes('role="search"'), false)
-})
-
 test('the words of a page are its main part as plain text, and a big site keeps less of each page', () => {
   assert.equal(
     searchText('<html><body><header><nav>Menü</nav></header><main><h1>Titel</h1><p>Ein&nbsp;Satz &amp; &#228;ndern <script>x()</script><b>fett</b></p><form>Suche</form></main><footer>Fuß</footer></body></html>'),
@@ -877,6 +870,10 @@ test('a page tells search engines its way down, says something about itself, and
   assert.deepEqual(lists(read('en/werkstatt/index.html')).itemListElement.map((step: { item: string }) => step.item), ['https://example.org/en/', 'https://example.org/en/ueber-uns/', 'https://example.org/en/werkstatt/'])
   assert.deepEqual(lists(read('dach/index.html')).itemListElement.map((step: { name: string }) => step.name), ['Start', 'Aktuelles', 'Neues Dach'])
   assert.equal(lists(read('index.html')), undefined)
+  // The starter shows the way too, for a page under a parent and for a post, not for a page at the top.
+  assert.match(read('werkstatt/index.html'), /<nav[^>]*aria-label="Pfad">[\s\S]*href="\/ueber-uns\/">Über uns<\/a>[\s\S]*aria-current="page">Werkstatt im Haus/)
+  assert.match(read('dach/index.html'), /aria-current="page">Neues Dach/)
+  assert.doesNotMatch(read('ueber-uns/index.html'), /aria-label="Pfad"/)
   // A description comes from the page's own text when its layout names no slot for one, and a listing gets a plain one.
   assert.match(read('werkstatt/index.html'), /<meta name="description" content="Hier wird gelötet und gesägt/)
   assert.match(read('kalender/index.html'), /<meta name="description" content="Kalender · Housing project">/)
@@ -955,4 +952,38 @@ test('the whole site is checked for links that lead nowhere, lonely pages, repea
   const better = generate(root, path.join(root, 'out2'))
   assert.deepEqual(better.missingAlt, [])
   assert.doesNotMatch(checkSite(better.outDir, better.missingAlt), /Pictures that say nothing/)
+})
+
+test('a site made before the search gets its page, its labels and advice for its header, and nothing the site has is touched', () => {
+  const root = newSite('housing-upgrade-')
+  const design = path.join(root, 'design')
+  // The state of a site made before the search: no layout, no labels, a shell without the field.
+  fs.rmSync(path.join(design, 'layouts', 'search'), { recursive: true })
+  const labels = parseYaml(fs.readFileSync(path.join(design, 'labels.yml'), 'utf8')) as Record<string, unknown>
+  for (const key of Object.keys(labels)) if (key.startsWith('search') || key === 'breadcrumbs_label') delete labels[key]
+  labels.back_home = { de: 'Heim', en: 'Home' }
+  fs.writeFileSync(path.join(design, 'labels.yml'), stringifyYaml(labels))
+  const shell = fs.readFileSync(path.join(design, 'shell.njk'), 'utf8')
+  fs.writeFileSync(path.join(design, 'shell.njk'), shell.replace(/\{% if search %\}[\s\S]*?\{% endif %\}/, '').replace(/\{% if breadcrumbs and[\s\S]*?<\/nav>\s*\{% endif %\}/, ''))
+  const notFound = path.join(design, 'layouts', 'notfound', 'template.njk')
+  fs.writeFileSync(notFound, `${fs.readFileSync(notFound, 'utf8')}<!-- my own -->`)
+  const before = fs.readFileSync(path.join(design, 'labels.yml'), 'utf8')
+  assert.equal(upgradeAdvice(root, false).length, 0, 'no search page yet, so nothing to advise')
+
+  const out = generate(root, path.join(root, 'out')).outDir
+  assert.equal(fs.existsSync(path.join(out, 'suche', 'index.html')), true)
+  assert.equal(fs.existsSync(path.join(out, 'search-index.de.json')), true)
+  assert.match(fs.readFileSync(path.join(out, 'suche', 'index.html'), 'utf8'), /<title>Suche/)
+  const after = fs.readFileSync(path.join(design, 'labels.yml'), 'utf8')
+  assert.ok(after.startsWith(before), 'a label the site has is kept as it is')
+  assert.match(after, /search_placeholder:/)
+  assert.match(after, /de: Heim/)
+  assert.match(fs.readFileSync(notFound, 'utf8'), /<!-- my own -->/)
+  const advice = upgradeAdvice(root, true)
+  assert.equal(advice.length, 2)
+  assert.match(advice[0], /no search field[\s\S]*\{% if search %\}[\s\S]*site-search/)
+  assert.match(advice[1], /just before <main>[\s\S]*breadcrumbs[\s\S]*<\/nav>\s*\{% endif %\}$/)
+  // A second run changes nothing.
+  generate(root, path.join(root, 'out2'))
+  assert.equal(fs.readFileSync(path.join(design, 'labels.yml'), 'utf8'), after)
 })

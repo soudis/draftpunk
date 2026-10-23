@@ -38,6 +38,7 @@ import { searchIndexJson, searchText, type SearchEntry } from './search'
 import { atomFeed, breadcrumbLd, eventLds, organizationLd, postLd, websiteLd, type Json } from './structured'
 import { fingerprintStyles } from './finish'
 import { SizePlan } from './sizes'
+import { upgradeDesign } from './upgrade'
 import { fontFaceCss, fontPreloadLinks, readFonts } from './fonts'
 import { resolveSlots } from './slots'
 import { readTokens, tokensCss } from './tokens'
@@ -74,6 +75,7 @@ export function generate(root: string, outDir = path.join(root, 'dist'), options
 
 function generateInto(root: string, outDir: string, hints: boolean): GenerateResult {
   const designDir = path.join(root, 'design')
+  upgradeDesign(root)
   const site = readSiteConfig(root)
   const env = nunjucks.configure([designDir], { autoescape: true, noCache: true, throwOnUndefined: false })
   env.addGlobal('assets', site.assets)
@@ -391,7 +393,7 @@ function renderPage(
     footer,
     (language) => pageUrl(page.slug, language, site),
     hasPage,
-    { news, upcoming, date: page.date, slots },
+    { news, upcoming, date: page.date, slots, breadcrumbs: page.slug === 'home' ? [] : trailFor(site, nav, lang, page.slug, page.title, Boolean(page.date), '') },
   )
   return withLayoutAttribute(env.render(layoutTemplatePath(page.layout), context), page.layout)
 }
@@ -694,9 +696,9 @@ function modifiedOf(root: string, file: string | null): { modified?: string } {
 }
 
 /** The way down to a page: home, its parent in the menu (or the news, for a post), and the page itself. */
-function trailFor(site: SiteConfig, menu: NavItem[], lang: Lang, slug: string, title: string, post: boolean): { name: string; url: string }[] {
+function trailFor(site: SiteConfig, menu: NavItem[], lang: Lang, slug: string, title: string, post: boolean, origin = site.url ?? ''): { name: string; url: string }[] {
   const defaultLang = site.languages[0]?.id ?? 'de'
-  const whole = (urlPath: string) => `${site.url}${urlPath}`
+  const whole = (urlPath: string) => `${origin}${urlPath}`
   const home = { name: heading(lang, 'Start', 'Home'), url: whole(routePath('/', lang, site)) }
   const own = { name: title, url: whole(pageUrl(slug, lang, site)) }
   const target = pageUrl(slug, defaultLang, site)

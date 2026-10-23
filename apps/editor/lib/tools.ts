@@ -41,6 +41,7 @@ import {
   forkLayout,
   formatCatalog,
   checkSite,
+  upgradeAdvice,
   generate,
   labelNames,
   labelReferences,
@@ -638,7 +639,11 @@ export function contentTools(root: string, options: ToolOptions = {}): ToolSet {
       input: z.object({}),
       execute: () => {
         const result = generate(root)
-        return checkSite(result.outDir, result.missingAlt)
+        const nav = readYaml<{ menu?: { children?: unknown[] }[] } | { children?: unknown[] }[]>(path.join(root, 'design', 'nav.yml'), [])
+        const menu = Array.isArray(nav) ? nav : (nav.menu ?? [])
+        const advice = upgradeAdvice(root, menu.some((item) => Array.isArray(item.children) && item.children.length > 0))
+        const report = checkSite(result.outDir, result.missingAlt)
+        return advice.length === 0 ? report : `${report}\n\nThe starter has this and the design of this site does not yet. It is optional: tell the person and add it when they want it.\n${advice.join('\n\n')}`
       },
     }),
     set_homepage_news: defineTool('set_homepage_news', {

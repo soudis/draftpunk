@@ -147,3 +147,16 @@ _Avoid_: appointment, calendar entry
 **Place**:
 Where an event happens. It may be on the premises or elsewhere.
 _Avoid_: location, venue, room
+
+**Alt text**:
+The words a picture says about itself for someone who cannot see it. A site keeps them per picture, in each language, and every page showing the picture uses them. A picture that is only decoration keeps none on purpose.
+_Avoid_: caption, description (the description is for finding a picture)
+
+**Picture copy**:
+A smaller version of a picture that the generator makes, so that a screen takes only as much as it needs. The original stays in the media library.
+_Avoid_: thumbnail (that is the library's small view), resized image
+
+**Site check**:
+A look at the whole generated site for what is wrong between pages: links that lead nowhere, repeated titles, pages nothing links to, pictures without alt text.
+_Avoid_: audit (that is one page in a browser)
+

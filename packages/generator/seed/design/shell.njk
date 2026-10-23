@@ -45,6 +45,15 @@
       </nav>
     </div>
   </header>
+  {% if breadcrumbs and breadcrumbs.length > 2 %}
+  <nav class="mx-auto max-w-content px-6 pt-4 text-sm" aria-label="{{ labels.breadcrumbs_label }}">
+    <ol class="flex flex-wrap gap-x-2">
+      {% for step in breadcrumbs %}
+      <li>{% if loop.last %}<span aria-current="page">{{ step.name }}</span>{% else %}<a class="hover:text-link" href="{{ step.url }}">{{ step.name }}</a> <span aria-hidden="true">›</span>{% endif %}</li>
+      {% endfor %}
+    </ol>
+  </nav>
+  {% endif %}
   <main id="main">
     {% block body %}{% endblock %}
   </main>

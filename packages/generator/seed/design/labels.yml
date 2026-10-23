@@ -61,3 +61,6 @@ search_kind_post:
 search_kind_event:
   de: Termin
   en: Event
+breadcrumbs_label:
+  de: Pfad
+  en: You are here
