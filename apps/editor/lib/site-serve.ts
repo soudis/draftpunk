@@ -79,6 +79,9 @@ function cacheControl(rel: string, ext: string): string {
   return 'no-cache'
 }
 
+/** What an SVG file may do when it is opened directly: draw itself, with its own styles and embedded pictures. */
+const SVG_POLICY = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox"
+
 // Sent with every file of the public site.
 const SECURITY_HEADERS = {
   'x-content-type-options': 'nosniff',
@@ -148,6 +151,8 @@ function respond(root: string, file: string, request: Request | undefined, statu
     'cache-control': status === 200 ? cacheControl(path.relative(root, file).split(path.sep).join('/'), ext) : 'no-cache',
     ...SECURITY_HEADERS,
     ...(ext === '.html' ? { 'content-security-policy': contentSecurityPolicy(raw.toString('utf8')) } : {}),
+    // An SVG opened on its own is a page of the site's address: nothing in it may run or load.
+    ...(ext === '.svg' ? { 'content-security-policy': SVG_POLICY } : {}),
     ...(status === 200 ? { etag } : {}),
     ...(COMPRESSIBLE.has(ext) ? { vary: 'Accept-Encoding' } : {}),
   }
@@ -173,7 +178,7 @@ export function serveGenerated(root: string, rel: string, preview: boolean, requ
     const type = path.basename(found.file) === 'feed.xml' ? 'application/atom+xml; charset=utf-8' : (types[ext] ?? 'application/octet-stream')
     const raw = fs.readFileSync(found.file)
     const body = previewText.has(ext) ? Buffer.from(rewritePreviewUrls(raw.toString('utf8'))) : raw
-    return new NextResponse(body, { headers: { 'content-type': type, 'cache-control': 'no-cache' } })
+    return new NextResponse(body, { headers: { 'content-type': type, 'cache-control': 'no-cache', ...(ext === '.svg' ? { 'content-security-policy': SVG_POLICY } : {}) } })
   }
   if (!found) return notFound(root, rel, request)
   // A page has one address, the one with the closing slash: /kontakt goes to /kontakt/.

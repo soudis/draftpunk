@@ -78,6 +78,9 @@ importers:
       '@tailwindcss/cli':
         specifier: ^4.0.7
         version: 4.3.3
+      '@xmldom/xmldom':
+        specifier: ^0.9.12
+        version: 0.9.12
       gray-matter:
         specifier: ^4.0.3
         version: 4.0.3
@@ -829,6 +832,10 @@ packages:
   '@vercel/oidc@3.1.0':
     resolution: {integrity: sha512-Fw28YZpRnA3cAHHDlkt7xQHiJ0fcL+NRcIqsocZQUSmbzeIKRpwttJjik5ZGanXP+vlA4SbTg+AbA3bP363l+w==}
     engines: {node: '>= 20'}
+
+  '@xmldom/xmldom@0.9.12':
+    resolution: {integrity: sha512-5AXjrcMClTryPe9LgZrygpB1lj7s0S9E0+W+AHaVKAVyHanafK86iPSvG5xHVSp/jC+VH1UXu0TAEmY279xH7A==}
+    engines: {node: '>=14.6'}
 
   a-sync-waterfall@1.0.1:
     resolution: {integrity: sha512-RYTOHHdWipFUliRFMCS4X2Yn2X8M87V/OpSqWzKKOGhzqyUxzyVmhHDH9sAvG+ZuQf/TAOFsLCpMw09I1ufUnA==}
@@ -1894,6 +1901,8 @@ snapshots:
   '@types/turndown@5.0.6': {}
 
   '@vercel/oidc@3.1.0': {}
+
+  '@xmldom/xmldom@0.9.12': {}
 
   a-sync-waterfall@1.0.1: {}
 

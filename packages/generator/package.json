@@ -7,12 +7,13 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "tsx --test src/generate.test.ts src/hints.test.ts",
+    "test": "tsx --test src/generate.test.ts src/hints.test.ts src/svg.test.ts",
     "generate": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@tailwindcss/cli": "^4.0.7",
+    "@xmldom/xmldom": "^0.9.12",
     "gray-matter": "^4.0.3",
     "image-size": "^2.0.4",
     "markdown-it": "^14.1.0",

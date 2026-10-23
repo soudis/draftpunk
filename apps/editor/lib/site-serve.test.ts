@@ -161,3 +161,14 @@ test('a page has one address, a missing page shows the 404 page of its language,
   assert.equal(ask('assets/styles.0123456789.css').headers.get('cache-control'), 'public, max-age=31536000, immutable')
   assert.equal(ask('media/_sizes/hof-480-abcdef12.webp').headers.get('cache-control'), 'public, max-age=31536000, immutable')
 })
+
+test('an SVG opened on its own may not run or load anything', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'schlor-svg-serve-'))
+  fs.writeFileSync(path.join(root, 'index.html'), '<p>x</p>')
+  fs.mkdirSync(path.join(root, 'media'))
+  fs.writeFileSync(path.join(root, 'media', 'zeichen.svg'), '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>')
+  for (const response of [serveGenerated(root, 'media/zeichen.svg', false, new Request('http://x.test/')), serveGenerated(root, 'media/zeichen.svg', true)]) {
+    assert.equal(response.headers.get('content-type'), 'image/svg+xml')
+    assert.equal(response.headers.get('content-security-policy'), "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox")
+  }
+})

@@ -987,3 +987,17 @@ test('a site made before the search gets its page, its labels and advice for its
   generate(root, path.join(root, 'out2'))
   assert.equal(fs.readFileSync(path.join(design, 'labels.yml'), 'utf8'), after)
 })
+
+test('an SVG reaches the output cleaned, whatever way it came into the files, and one that cannot be cleaned is left out', () => {
+  const root = newSite('housing-svg-')
+  fs.mkdirSync(path.join(root, 'media', 'icons'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'media', 'logo.svg'), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4" onload="alert(1)"><script>alert(2)</script><rect width="4" height="4" fill="#335"/></svg>')
+  fs.writeFileSync(path.join(root, 'media', 'icons', 'kaputt.svg'), '<svg><rect></svg>')
+  fs.writeFileSync(path.join(root, 'media', 'foto.txt'), 'plain file')
+  const out = generate(root, path.join(root, 'out')).outDir
+  const logo = fs.readFileSync(path.join(out, 'media', 'logo.svg'), 'utf8')
+  assert.equal(/script|onload|alert/.test(logo), false)
+  assert.ok(logo.includes('<rect width="4" height="4" fill="#335"/>'))
+  assert.equal(fs.existsSync(path.join(out, 'media', 'icons', 'kaputt.svg')), false)
+  assert.equal(fs.readFileSync(path.join(out, 'media', 'foto.txt'), 'utf8'), 'plain file')
+})

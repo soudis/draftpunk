@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import sharp from 'sharp'
-import { readYaml, writeYaml } from '@schlor/generator'
+import { readYaml, sanitizeSvg, writeYaml } from '@schlor/generator'
 
 export const PICTURE_BYTE_LIMIT = 8_000_000
 
@@ -105,18 +105,29 @@ export function searchPictures(root: string, query: string, limit = 30): { total
   return { total: pictures.length, matched: matches.length, matches: matches.slice(0, limit) }
 }
 
+/** The cleaned text of an SVG, or an error that says why it cannot be kept. */
+export function cleanSvg(bytes: Uint8Array): string {
+  try {
+    return sanitizeSvg(new TextDecoder('utf-8').decode(bytes)).svg
+  } catch (error) {
+    throw new Error(`That SVG cannot be kept: ${error instanceof Error ? error.message : 'it could not be read.'}`)
+  }
+}
+
 export function storePicture(
   root: string,
   input: { bytes: Uint8Array; filename: string; description?: string; tags?: string[]; replace?: boolean; origin?: string },
 ): PictureRecord {
   const kind = detectPicture(input.bytes)
   if (!kind) throw new Error('That file is not a JPEG, PNG, WebP, GIF, or SVG.')
+  // An SVG is markup: what could run or reach another place is taken out before it is kept.
+  const bytes = kind === 'svg' ? new TextEncoder().encode(cleanSvg(input.bytes)) : input.bytes
   const media = mediaDir(root)
   fs.mkdirSync(media, { recursive: true })
   const stem = stemFromFilename(input.filename)
   const ext = EXTENSIONS[kind]
   const file = freeFile(media, '', stem, ext, input.replace === true)
-  fs.writeFileSync(path.join(media, file), input.bytes)
+  fs.writeFileSync(path.join(media, file), bytes)
   const description = normalizeDescription(input.description ?? '')
   const tags = normalizeTags(input.tags ?? [])
   remember(root, file, description, tags, file, input.origin)

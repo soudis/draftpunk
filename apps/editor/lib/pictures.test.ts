@@ -127,3 +127,14 @@ test('a small copy of a big picture is made once, kept, and found again; a chang
   await assert.rejects(() => pictureThumbnail(root, '../x.jpg', 480, cache), /Unknown picture/)
   await assert.rejects(() => pictureThumbnail(root, 'fehlt.jpg', 480, cache), /Unknown picture/)
 })
+
+test('an SVG is cleaned when it is stored, and one that is not an SVG is refused', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'schlor-svg-store-'))
+  const dirty = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4"><script>alert(1)</script><image href="https://x.test/p.png"/><rect width="4" height="4" fill="#335" onclick="x()"/></svg>'
+  const saved = storePicture(root, { bytes: new TextEncoder().encode(dirty), filename: 'zeichen.svg' })
+  const text = fs.readFileSync(path.join(root, 'media', saved.file), 'utf8')
+  assert.equal(/script|onclick|x\.test|<image/.test(text), false)
+  assert.ok(text.includes('<rect width="4" height="4" fill="#335"/>'))
+  assert.throws(() => storePicture(root, { bytes: new TextEncoder().encode('<svg><rect></svg>'), filename: 'kaputt.svg' }), /That SVG cannot be kept: That is not a well formed SVG/)
+  assert.equal(fs.existsSync(path.join(root, 'media', 'kaputt.svg')), false)
+})

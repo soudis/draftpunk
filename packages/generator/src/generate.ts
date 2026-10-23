@@ -38,6 +38,7 @@ import { searchIndexJson, searchText, type SearchEntry } from './search'
 import { atomFeed, breadcrumbLd, eventLds, organizationLd, postLd, websiteLd, type Json } from './structured'
 import { fingerprintStyles } from './finish'
 import { SizePlan } from './sizes'
+import { sanitizeSvg } from './svg'
 import { upgradeDesign } from './upgrade'
 import { fontFaceCss, fontPreloadLinks, readFonts } from './fonts'
 import { resolveSlots } from './slots'
@@ -733,7 +734,17 @@ function copyMedia(from: string, to: string): void {
     const src = path.join(from, entry.name)
     const dest = path.join(to, entry.name)
     if (entry.isDirectory()) copyMedia(src, dest)
+    else if (entry.isFile() && /\.svg$/i.test(entry.name)) copySvg(src, dest)
     else if (entry.isFile()) fs.copyFileSync(src, dest)
+  }
+}
+
+/** Whatever way an SVG came into the site's files, the one a visitor gets has been cleaned. One that cannot be cleaned is not published. */
+function copySvg(from: string, to: string): void {
+  try {
+    fs.writeFileSync(to, sanitizeSvg(fs.readFileSync(from, 'utf8')).svg)
+  } catch {
+    // not a safe SVG: left out of the output, and check_site reports the picture as a dead file
   }
 }
 

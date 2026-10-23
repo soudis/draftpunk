@@ -21,6 +21,8 @@ export function initSite(root: string): void {
 export { renderContent, designFilePath, assertSlug, writeYaml, readYaml } from './content'
 export { assetsCss, generate, pageOutputFile, pageUrl, replaceLayout, pageLayoutsOrThrow } from './generate'
 export { checkSite } from './check-site'
+export { sanitizeSvg } from './svg'
+export type { SvgReport } from './svg'
 export { upgradeAdvice, upgradeDesign } from './upgrade'
 export { lostContent, slotExpectations } from './preservation'
 export type { PageExpectation } from './preservation'
