@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { imageSize } from 'image-size'
+import { firstMainImage, jsonLdTag, type Json } from './structured'
 
 const ATTRIBUTE = (name: string) => new RegExp(`\\s${name}\\s*=`, 'i')
 
@@ -123,6 +124,11 @@ export type PageMeta = {
   path: string
   /** A page that search engines should not list, such as the search results. */
   noindex?: boolean
+  /** A post has a day, and is shared as an article. */
+  kind?: 'post'
+  date?: string
+  /** schema.org data for the page. A picture is added to a post or an event when the page has one. */
+  structured?: Json[]
 }
 
 const LOCALE: Record<string, string> = { de: 'de_AT', en: 'en_GB', fr: 'fr_FR', it: 'it_IT', es: 'es_ES' }
@@ -158,7 +164,7 @@ function withAbsoluteAlternates(head: string, meta: PageMeta, site: { url?: stri
 export function enhanceHead(
   html: string,
   meta: PageMeta,
-  site: { name: string; url?: string; assets?: Record<string, string>; languages?: { id: string }[] },
+  site: { name: string; url?: string; assets?: Record<string, string>; languages?: { id: string }[]; feeds?: Record<string, string> },
   extra: { preload: string[]; themeColor?: string },
 ): string {
   const close = /<\/head>/i.exec(html)
@@ -169,7 +175,8 @@ export function enhanceHead(
   const description = (meta.description ?? '').replace(/\s+/g, ' ').trim().slice(0, 200)
   if (description && !has(/<meta[^>]+name=["']description["']/i)) tags.push(`<meta name="description" content="${escapeAttribute(description)}">`)
   if (!has(/<meta[^>]+property=["']og:title["']/i)) {
-    tags.push(`<meta property="og:title" content="${escapeAttribute(meta.title)}">`, '<meta property="og:type" content="website">', `<meta property="og:site_name" content="${escapeAttribute(site.name)}">`)
+    tags.push(`<meta property="og:title" content="${escapeAttribute(meta.title)}">`, `<meta property="og:type" content="${meta.kind === 'post' ? 'article' : 'website'}">`, `<meta property="og:site_name" content="${escapeAttribute(site.name)}">`)
+    if (meta.kind === 'post' && meta.date) tags.push(`<meta property="article:published_time" content="${escapeAttribute(meta.date)}">`)
     tags.push(`<meta property="og:locale" content="${LOCALE[meta.lang] ?? meta.lang}">`)
     if (description) tags.push(`<meta property="og:description" content="${escapeAttribute(description)}">`)
     if (site.url) tags.push(`<meta property="og:url" content="${escapeAttribute(site.url + meta.path)}">`)
@@ -178,8 +185,17 @@ export function enhanceHead(
   if (meta.noindex && !has(/<meta[^>]+name=["']robots["']/i)) tags.push('<meta name="robots" content="noindex, follow">')
   const icon = site.assets?.favicon
   if (icon && !has(/<link[^>]+rel=["'](?:shortcut )?icon["']/i)) tags.push(`<link rel="icon" href="${escapeAttribute(icon)}">`)
-  const share = site.assets?.social
+  // The picture a page is shared with: its own first large picture, else the site's share picture.
+  const pagePicture = site.url ? firstMainImage(html) : undefined
+  const share = pagePicture ?? site.assets?.social
   if (share && site.url && !has(/<meta[^>]+property=["']og:image["']/i)) tags.push(`<meta property="og:image" content="${escapeAttribute(site.url + share)}">`)
+  if (site.url && !has(/<meta[^>]+name=["']twitter:card["']/i)) tags.push(`<meta name="twitter:card" content="${share ? 'summary_large_image' : 'summary'}">`)
+  const feed = site.feeds?.[meta.lang]
+  if (feed && !has(/<link[^>]+type=["']application\/(?:atom|rss)\+xml["']/i)) tags.push(`<link rel="alternate" type="application/atom+xml" title="${escapeAttribute(site.name)}" href="${escapeAttribute(feed)}">`)
+  if (meta.structured?.length && site.url && !has(/application\/ld\+json/i)) {
+    const picture = pagePicture ? site.url + pagePicture : undefined
+    tags.push(jsonLdTag(meta.structured.map((item) => (picture && (item['@type'] === 'BlogPosting' || item['@type'] === 'Event') && !item.image ? { ...item, image: picture } : item))))
+  }
   if (extra.themeColor && !has(/<meta[^>]+name=["']theme-color["']/i)) tags.push(`<meta name="theme-color" content="${escapeAttribute(extra.themeColor)}">`)
   if (tags.length === 0) return `${head}${html.slice(close.index)}`
   return `${head}  ${tags.join('\n  ')}\n${html.slice(close.index)}`

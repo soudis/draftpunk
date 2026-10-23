@@ -35,6 +35,7 @@ import {
 import { listPageSlugs, pageHasLanguage, readPage, writePage, type PageFile } from './pages'
 import { describe, enhanceHead, enhancePictures, robotsTxt, sitemapXml, type PageMeta } from './baseline'
 import { searchIndexJson, searchText, type SearchEntry } from './search'
+import { atomFeed, eventLds, organizationLd, postLd, websiteLd, type Json } from './structured'
 import { fontFaceCss, fontPreloadLinks, readFonts } from './fonts'
 import { resolveSlots } from './slots'
 import { readTokens, tokensCss } from './tokens'
@@ -109,10 +110,19 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
   const preload = fontPreloadLinks(faces)
   const themeColor = readTokens(root).colors.primary
   const written: string[] = []
+  // Every language that has posts has a feed, and every page of it points to the feed. A feed needs whole addresses.
+  const feeds: Record<string, string> = {}
+  if (site.url) {
+    for (const language of site.languages) {
+      if (pages.some((item) => item.lang === language.id && item.date)) feeds[language.id] = `${site.url}${routePath('/feed.xml', language.id, site)}`
+    }
+  }
+  const seoSite = { ...site, feeds }
   const put = (urlPath: string, html: string, meta: PageMeta) => {
-    writeHtml(outDir, urlPath, html, hints, (shown) => enhanceHead(enhancePictures(shown, root), meta, site, { preload, themeColor }))
+    writeHtml(outDir, urlPath, html, hints, (shown) => enhanceHead(enhancePictures(shown, root), meta, seoSite, { preload, themeColor }))
     if (!meta.noindex) written.push(urlPath)
   }
+  const logo = site.url && site.assets.logo ? `${site.url}${site.assets.logo}` : undefined
   // The search needs the design to have its page; a site made before it has none, and gets neither the page nor the index.
   const searchOn = layoutExists(designDir, 'search')
   let pageCount = 0
@@ -124,11 +134,22 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
     for (const page of pages.filter((item) => item.lang === lang)) {
       const url = pageUrl(page.slug, lang, site)
       const html = renderPage(env, designDir, page, lang, site, menu, footer, pages, homeNews, events, places, hints)
+      const description = pageDescription(designDir, page, lang)
+      const structured: Json[] = []
+      if (site.url && page.slug === 'home') {
+        structured.push(
+          websiteLd({ name: site.name, url: `${site.url}${url}`, lang, searchTarget: searchOn ? `${site.url}${routePath('/suche/', lang, site)}?q={search_term_string}` : undefined }),
+          organizationLd({ name: site.name, url: `${site.url}${url}`, logo }),
+        )
+      }
+      if (site.url && page.date) structured.push(postLd({ headline: page.title, url: `${site.url}${url}`, date: page.date, lang, description: description || undefined, publisher: { name: site.name, logo } }))
       put(url, html, {
         title: page.title,
-        description: pageDescription(designDir, page, lang),
+        description,
         lang,
         path: url,
+        ...(page.date ? { kind: 'post' as const, date: page.date } : {}),
+        ...(structured.length > 0 ? { structured } : {}),
       })
       entries.push({ t: page.title, u: url, k: page.date ? 'post' : 'page', x: searchText(html), ...(page.date ? { d: page.date } : {}) })
       pageCount += 1
@@ -140,17 +161,49 @@ function generateInto(root: string, outDir: string, hints: boolean): GenerateRes
     for (const event of events) {
       const eventPath = eventUrl(event.slug, lang, site)
       const html = renderEvent(env, event, lang, site, fields, menu, footer, places, hints)
+      const eventDescription = describe(renderContent(event.body[lang] || ''))
+      const eventPlace = places.get(event.place)
       put(eventPath, html, {
         title: event.title[lang] || event.slug,
-        description: describe(renderContent(event.body[lang] || '')),
+        description: eventDescription,
         lang,
         path: eventPath,
+        ...(site.url
+          ? {
+              structured: eventLds({
+                name: event.title[lang] || event.slug,
+                url: `${site.url}${eventPath}`,
+                lang,
+                description: eventDescription || undefined,
+                dates: event.dates,
+                place: eventPlace ? { name: placeText(eventPlace, lang, false) || undefined, address: placeAddress(eventPlace, false) } : undefined,
+              }),
+            }
+          : {}),
       })
       if (event.title[lang]?.trim()) entries.push({ t: event.title[lang], u: eventPath, k: 'event', x: searchText(html) })
     }
     if (events.length > 0) {
       const index = routePath('/events/', lang, site)
       put(index, renderEventIndex(env, lang, site, menu, footer, events, hints), { title: heading(lang, 'Termine', 'Events'), lang, path: index })
+    }
+    if (feeds[lang] && site.url) {
+      const labels = readLabels(root, lang)
+      const posts = entries.filter((entry) => entry.k === 'post' && entry.d)
+      const feedPath = routePath('/feed.xml', lang, site)
+      const summary = (text: string) => (text.length <= 300 ? text : `${text.slice(0, 300).replace(/\s+\S*$/, '')}…`)
+      fs.mkdirSync(path.dirname(path.join(outDir, feedPath)), { recursive: true })
+      fs.writeFileSync(
+        path.join(outDir, feedPath),
+        atomFeed({
+          title: `${site.name} – ${labels.news || heading(lang, 'Aktuelles', 'News')}`,
+          homeUrl: `${site.url}${routePath('/', lang, site)}`,
+          selfUrl: feeds[lang],
+          lang,
+          author: site.name,
+          entries: posts.map((entry) => ({ title: entry.t, url: `${site.url}${entry.u}`, date: entry.d as string, summary: summary(entry.x) })),
+        }),
+      )
     }
     if (searchOn) {
       const labels = readLabels(root, lang)

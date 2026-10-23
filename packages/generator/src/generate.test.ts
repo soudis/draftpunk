@@ -761,3 +761,88 @@ test('the starter shows the dates of an event as people read them, in a time ele
   assert.match(page, /<time datetime="2031-07-05T16:00:00\.000Z">5\. Juli 2031, 18:00<\/time> – <time datetime="2031-07-05T22:00:00\.000Z">/)
   assert.equal(page.includes('>2031-07-05T16:00:00.000Z<'), false)
 })
+
+function ldOf(html: string): Record<string, unknown>[] {
+  const found = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].flatMap((match) => {
+    const data = JSON.parse(match[1])
+    return Array.isArray(data) ? data : [data]
+  })
+  return found as Record<string, unknown>[]
+}
+
+function seoSite() {
+  const root = newSite('housing-seo-')
+  fs.writeFileSync(path.join(root, 'media', 'logo.png'), png(6))
+  fs.writeFileSync(path.join(root, 'media', 'teilen.jpg'), 'jpg')
+  fs.writeFileSync(path.join(root, 'media', 'dach.jpg'), Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(40)]))
+  const file = path.join(root, 'design', 'site.yml')
+  fs.writeFileSync(file, `${fs.readFileSync(file, 'utf8')}\nurl: https://haus.example\nassets:\n  logo: /media/logo.png\n  social: /media/teilen.jpg\n`)
+  writePage(root, { slug: 'dach', layout: 'article', date: '2025-03-04', title: { de: 'Neues Dach', en: 'New roof' }, slots: { body: { de: 'Das Dach ist fertig & dicht. ![Dach](/media/dach.jpg)', en: 'The roof is done.' } } })
+  fs.mkdirSync(path.join(root, 'content', 'events'), { recursive: true })
+  fs.mkdirSync(path.join(root, 'content', 'places'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'content', 'places', 'hof.yml'), ['slug: hof', 'name:', '  de: Hof', '  en: Courtyard', 'address: Rappachgasse 26, 1110 Wien', 'onPremises: true'].join('\n'))
+  fs.writeFileSync(
+    path.join(root, 'content', 'events', 'fest.yml'),
+    ['slug: fest', 'title:', '  de: Sommerfest', '  en: Summer party', 'body:', '  de: Grillen im Hof.', '  en: Grill.', 'place: hof', 'categories: []', 'dates:', '  - start: 2031-07-05T16:00:00.000Z', '    end: 2031-07-05T22:00:00.000Z', '  - start: 2031-07-06T16:00:00.000Z'].join('\n'),
+  )
+  return { root, out: generate(root).outDir }
+}
+
+test('with the site address the pages carry structured data, a share picture and a link to the feed', () => {
+  const { out } = seoSite()
+  const read = (rel: string) => fs.readFileSync(path.join(out, rel), 'utf8')
+  const home = ldOf(read('index.html'))
+  const website = home.find((item) => item['@type'] === 'WebSite') as { url: string; inLanguage: string; potentialAction: { target: string } }
+  assert.equal(website.url, 'https://haus.example/')
+  assert.equal(website.potentialAction.target, 'https://haus.example/suche/?q={search_term_string}')
+  assert.deepEqual(home.find((item) => item['@type'] === 'Organization'), { '@context': 'https://schema.org', '@type': 'Organization', name: 'Housing project', url: 'https://haus.example/', logo: 'https://haus.example/media/logo.png' })
+  assert.equal((ldOf(read('en/index.html')).find((item) => item['@type'] === 'WebSite') as { url: string }).url, 'https://haus.example/en/')
+
+  const post = read('dach/index.html')
+  const blog = ldOf(post).find((item) => item['@type'] === 'BlogPosting') as { headline: string; datePublished: string; image: string; inLanguage: string }
+  assert.deepEqual([blog.headline, blog.datePublished, blog.image, blog.inLanguage], ['Neues Dach', '2025-03-04', 'https://haus.example/media/dach.jpg', 'de'])
+  assert.match(post, /<meta property="og:type" content="article">/)
+  assert.match(post, /<meta property="article:published_time" content="2025-03-04">/)
+  assert.match(post, /<meta property="og:image" content="https:\/\/haus\.example\/media\/dach\.jpg">/)
+  assert.match(post, /<meta name="twitter:card" content="summary_large_image">/)
+  assert.match(read('index.html'), /<meta property="og:image" content="https:\/\/haus\.example\/media\/teilen\.jpg">/)
+  assert.match(read('index.html'), /<meta property="og:type" content="website">/)
+
+  const events = ldOf(read('events/fest/index.html')).filter((item) => item['@type'] === 'Event') as { startDate: string; endDate?: string; name: string; location: { name: string; address: string }; url: string }[]
+  assert.equal(events.length, 2)
+  assert.deepEqual(events.map((item) => [item.startDate, item.endDate]), [['2031-07-05T16:00:00.000Z', '2031-07-05T22:00:00.000Z'], ['2031-07-06T16:00:00.000Z', undefined]])
+  assert.deepEqual([events[0].name, events[0].location.name, events[0].location.address, events[0].url], ['Sommerfest', 'Hof', 'Rappachgasse 26, 1110 Wien', 'https://haus.example/events/fest/'])
+  assert.equal((ldOf(read('en/events/fest/index.html'))[0] as { location: { name: string } }).location.name, 'Courtyard')
+
+  assert.match(read('index.html'), /<link rel="alternate" type="application\/atom\+xml" title="Housing project" href="https:\/\/haus\.example\/feed\.xml">/)
+  assert.match(read('en/index.html'), /href="https:\/\/haus\.example\/en\/feed\.xml"/)
+  const feed = read('feed.xml')
+  assert.match(feed, /<feed xmlns="http:\/\/www\.w3\.org\/2005\/Atom" xml:lang="de">/)
+  assert.match(feed, /<entry>\s*<title>Neues Dach<\/title>\s*<link href="https:\/\/haus\.example\/dach\/"\/>\s*<id>https:\/\/haus\.example\/dach\/<\/id>\s*<updated>2025-03-04T00:00:00Z<\/updated>\s*<summary>[^<]*fertig &amp; dicht/)
+  assert.equal(feed.includes('Sommerfest'), false)
+  assert.match(read('en/feed.xml'), /<title>New roof<\/title>/)
+  assert.equal(read('suche/index.html').includes('ld+json'), false)
+})
+
+test('without the site address there is no structured data, no share picture and no feed', () => {
+  const root = newSite('housing-no-address-')
+  writePage(root, { slug: 'dach', layout: 'article', date: '2025-03-04', title: { de: 'Neues Dach', en: 'New roof' }, slots: { body: { de: 'Fertig.', en: 'Done.' } } })
+  const out = generate(root).outDir
+  for (const rel of ['index.html', 'dach/index.html']) {
+    const html = fs.readFileSync(path.join(out, rel), 'utf8')
+    assert.equal(/ld\+json|og:image|twitter:card|atom\+xml/.test(html), false, rel)
+  }
+  assert.equal(fs.existsSync(path.join(out, 'feed.xml')), false)
+})
+
+test('a title with a quote or a tag in it cannot break the data it is written into', () => {
+  const root = newSite('housing-ld-escape-')
+  const file = path.join(root, 'design', 'site.yml')
+  fs.writeFileSync(file, `${fs.readFileSync(file, 'utf8')}\nurl: https://haus.example\n`)
+  writePage(root, { slug: 'dach', layout: 'article', date: '2025-03-04', title: { de: 'Das "Dach" </script><b> & mehr', en: 'Roof' }, slots: { body: { de: 'Text.', en: 'Text.' } } })
+  const out = generate(root).outDir
+  const html = fs.readFileSync(path.join(out, 'dach', 'index.html'), 'utf8')
+  assert.equal((html.match(/<\/script>/g) ?? []).length, (html.match(/<script\b/g) ?? []).length)
+  assert.equal((ldOf(html).find((item) => item['@type'] === 'BlogPosting') as { headline: string }).headline, 'Das "Dach" </script><b> & mehr')
+  assert.match(fs.readFileSync(path.join(out, 'feed.xml'), 'utf8'), /<title>Das &quot;Dach&quot; &lt;\/script&gt;&lt;b&gt; &amp; mehr<\/title>/)
+})
