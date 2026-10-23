@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import sharp from 'sharp'
@@ -239,6 +240,33 @@ function freeFile(media: string, dir: string, stem: string, ext: string, replace
     if (!fs.existsSync(path.join(media, next))) return next
   }
   throw new Error('Could not find a free picture name.')
+}
+
+/**
+ * A small copy of a picture for a list of them. The originals of an import are several megabytes each, and a list
+ * of sixty would send hundreds before it showed anything. A copy is made once, kept in `cacheDir`, and found again by
+ * the file, its size and the time it was changed. A GIF or an SVG is sent as it is.
+ */
+export async function pictureThumbnail(
+  root: string,
+  file: string,
+  width: number,
+  cacheDir: string,
+): Promise<{ bytes: Uint8Array; mediaType: string; version: string }> {
+  const current = assertPictureFile(root, file)
+  const stat = fs.statSync(current.full)
+  const ext = path.posix.extname(current.file).toLowerCase()
+  const version = `${Math.round(stat.mtimeMs)}-${stat.size}`
+  if (ext === '.svg' || ext === '.gif') return { ...readPictureBytes(root, file), version }
+  const wanted = Math.min(Math.max(Math.round(width), 64), 1600)
+  const key = crypto.createHash('sha1').update(`${current.file}\0${version}\0${wanted}`).digest('hex')
+  const cached = path.join(cacheDir, `${key}.webp`)
+  if (fs.existsSync(cached)) return { bytes: new Uint8Array(fs.readFileSync(cached)), mediaType: 'image/webp', version }
+  const made = await sharp(fs.readFileSync(current.full), { failOn: 'none' }).rotate().resize({ width: wanted, withoutEnlargement: true }).webp({ quality: 72 }).toBuffer()
+  fs.mkdirSync(cacheDir, { recursive: true })
+  fs.writeFileSync(`${cached}.${process.pid}.tmp`, made)
+  fs.renameSync(`${cached}.${process.pid}.tmp`, cached)
+  return { bytes: new Uint8Array(made), mediaType: 'image/webp', version }
 }
 
 function assertPictureFile(root: string, file: string): { file: string; full: string } {

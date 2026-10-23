@@ -248,7 +248,7 @@ export function PictureDesk({
                               )
                             }
                           />
-                          <img src={`/api/pictures/raw?file=${encodeURIComponent(picture.file)}`} alt="" />
+                          <img src={`/api/pictures/raw?file=${encodeURIComponent(picture.file)}&w=480`} alt="" loading="lazy" decoding="async" />
                         </label>
                         <button type="button" className="quiet" onClick={() => setDraft(toDraft(picture, false))}>
                           {stemOf(picture.file)}
@@ -278,7 +278,7 @@ export function PictureDesk({
                   </button>
                 </div>
                 <div className="picture-editor-body">
-                <img src={`/api/pictures/raw?file=${encodeURIComponent(draft.file)}`} alt="" />
+                <img src={`/api/pictures/raw?file=${encodeURIComponent(draft.file)}&w=900`} alt="" decoding="async" />
                 <label>
                   Name
                   <input autoFocus value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
