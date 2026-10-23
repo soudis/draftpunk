@@ -21,6 +21,8 @@ type CatalogEntry = { file: string; description?: string; tags?: string[]; sourc
   alt?: Record<string, string>
   /** Only decoration: it keeps an empty alt text. */
   decorative?: boolean
+  /** The picture this one was made from by an edit, an extract or a trace. */
+  madeFrom?: string
 }
 
 const EXTENSIONS: Record<PictureKind, string> = {
@@ -331,9 +333,10 @@ function writeCatalog(root: string, entries: CatalogEntry[]): void {
       const origin = typeof entry.origin === 'string' && /^https?:\/\/\S{1,500}$/.test(entry.origin) ? entry.origin : undefined
       const alt = cleanAlt(entry.alt)
       const decorative = entry.decorative === true ? true : undefined
-      return { file: entry.file, description, tags, source: fitWidth ? source : undefined, fitWidth, origin, alt, decorative }
+      const madeFrom = cleanSource(entry.madeFrom)
+      return { file: entry.file, description, tags, source: fitWidth ? source : undefined, fitWidth, origin, alt, decorative, madeFrom }
     })
-    .filter((entry) => entry.description || entry.tags.length > 0 || entry.source || entry.origin || entry.alt || entry.decorative)
+    .filter((entry) => entry.description || entry.tags.length > 0 || entry.source || entry.origin || entry.alt || entry.decorative || entry.madeFrom)
     .sort((a, b) => a.file.localeCompare(b.file))
   if (kept.length === 0) {
     fs.rmSync(catalogPath(root), { force: true })
@@ -363,7 +366,7 @@ function remember(root: string, file: string, description: string, tags: string[
     .map((entry) => (previous !== file && entry.source === previous ? { ...entry, source: file } : entry))
     .filter((entry) => entry.file !== previous && entry.file !== file)
   const prior = readCatalog(root).find((entry) => entry.file === previous)
-  catalog.push({ file, description, tags, source: prior?.source, fitWidth: prior?.fitWidth, origin: origin ?? prior?.origin, alt: prior?.alt, decorative: prior?.decorative })
+  catalog.push({ file, description, tags, source: prior?.source, fitWidth: prior?.fitWidth, origin: origin ?? prior?.origin, alt: prior?.alt, decorative: prior?.decorative, madeFrom: prior?.madeFrom })
   writeCatalog(root, catalog)
 }
 
@@ -376,6 +379,15 @@ function cleanAlt(alt: Record<string, string> | undefined): Record<string, strin
       .filter(([, text]) => text),
   )
   return Object.keys(kept).length > 0 ? kept : undefined
+}
+
+/** Note which picture another one was made from. */
+export function noteMadeFrom(root: string, file: string, madeFrom: string): void {
+  const catalog = readCatalog(root)
+  const prior = catalog.find((entry) => entry.file === file)
+  const rest = catalog.filter((entry) => entry.file !== file)
+  rest.push({ ...(prior ?? { file, description: '', tags: [] }), file, madeFrom })
+  writeCatalog(root, rest)
 }
 
 /** What a picture shows, for the alt text of every page that has it: per language, and whether it is only decoration. */
@@ -393,6 +405,7 @@ export function setPictureAlt(root: string, file: string, input: { alt?: Record<
     origin: prior?.origin,
     alt: input.alt !== undefined ? cleanAlt({ ...(prior?.alt ?? {}), ...input.alt }) : prior?.alt,
     decorative: input.decorative ?? prior?.decorative,
+    madeFrom: prior?.madeFrom,
   })
   writeCatalog(root, rest)
   return toRecord(current.file, catalogByFile(root).get(current.file), countUsages(root, current.file))
@@ -401,7 +414,7 @@ export function setPictureAlt(root: string, file: string, input: { alt?: Record<
 function rememberFit(root: string, file: string, source: string, fitWidth: number): void {
   const catalog = readCatalog(root).filter((entry) => entry.file !== file)
   const prior = readCatalog(root).find((entry) => entry.file === file)
-  catalog.push({ file, description: prior?.description ?? '', tags: prior?.tags ?? [], source, fitWidth, alt: prior?.alt, decorative: prior?.decorative })
+  catalog.push({ file, description: prior?.description ?? '', tags: prior?.tags ?? [], source, fitWidth, alt: prior?.alt, decorative: prior?.decorative, madeFrom: prior?.madeFrom })
   writeCatalog(root, catalog)
 }
 

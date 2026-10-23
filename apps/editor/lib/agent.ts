@@ -83,22 +83,23 @@ export function repairToolInput(toolCall: ToolCallInput): ToolCallInput | null {
   return { ...toolCall, input: JSON.stringify({ [INVALID_JSON]: true }) }
 }
 
+export const SCREENSHOT_TOOLS = new Set(['preview_page', 'look_at_picture', 'edit_picture', 'svg_extract', 'svg_edit', 'write_svg'])
+
 /**
- * A tool result can only carry text to the model. A picture from preview_page is put in front of it
+ * A tool result can only carry text to the model. A picture from preview_page, or from a tool that edits or draws a picture, is put in front of it
  * as a user message for the next step, and is gone from the step after that.
  */
 export function attachScreenshots(messages: ModelMessage[], store: ScreenshotStore): ModelMessage[] {
   const last = messages[messages.length - 1]
   if (!last || last.role !== 'tool') return messages
-  const ids = (last.content as { type: string; toolName?: string; output?: unknown }[])
-    .filter((part) => part.type === 'tool-result' && part.toolName === 'preview_page')
-    .flatMap((part) => screenshotIds(JSON.stringify(part.output ?? '')))
-  const pictures = ids.flatMap((id) => {
+  const parts = (last.content as { type: string; toolName?: string; output?: unknown }[]).filter((part) => part.type === 'tool-result' && SCREENSHOT_TOOLS.has(String(part.toolName)))
+  const pictures = parts.flatMap((part) => screenshotIds(JSON.stringify(part.output ?? ''))).flatMap((id) => {
     const found = store.get(id)
     return found ? [{ type: 'image' as const, image: found.data, mediaType: found.mediaType }] : []
   })
   if (pictures.length === 0) return messages
-  return [...messages, { role: 'user', content: [{ type: 'text', text: 'The picture from preview_page:' }, ...pictures] }]
+  const names = [...new Set(parts.map((part) => String(part.toolName)))]
+  return [...messages, { role: 'user', content: [{ type: 'text', text: `The ${pictures.length === 1 ? 'picture' : 'pictures'} from ${names.join(', ')}:` }, ...pictures] }]
 }
 
 export type AgentRun = {

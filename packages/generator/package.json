@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "tsx --test src/generate.test.ts src/hints.test.ts src/svg.test.ts",
+    "test": "tsx --test src/generate.test.ts src/hints.test.ts src/svg.test.ts src/svg-parts.test.ts",
     "generate": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit"
   },

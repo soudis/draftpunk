@@ -23,6 +23,7 @@ import { slotDefAt, slotPath, valueAt, withValueAt } from './slot-edit'
 import { auditPage, pagePath, type ViewportName } from './page-audit'
 import { documentOpacityRefusal } from './page-opacity'
 import { pictureForVision, suggestPicture } from './picture-vision'
+import { pictureTools } from './picture-tools'
 import { detectPicture, discardPicture, fitPicture, pictureByOrigin, picturesWithoutWords, readPicture, readPictureBytes, searchPictures, setPictureAlt, setPictureDescription, stemFromFilename, storePicture } from './pictures'
 import { fetchPublicBytes, readWebsite } from './read-website'
 import { screenshotMarker, ScreenshotStore } from './screenshots'
@@ -1271,6 +1272,6 @@ export function setupTools(root: string): ToolSet {
 }
 
 export function toolsFor(mode: EditorMode, root: string, options: ToolOptions = {}): ToolSet {
-  const edit = { ...contentTools(root, options), ...designTools(root, options) }
+  const edit = { ...contentTools(root, options), ...designTools(root, options), ...pictureTools(root, options) }
   return mode === 'setup' ? { ...edit, ...setupTools(root) } : edit
 }

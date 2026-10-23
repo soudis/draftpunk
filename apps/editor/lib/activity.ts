@@ -25,6 +25,10 @@ const SITE_WRITES = new Set([
   'set_asset',
   'set_picture_alt',
   'describe_pictures',
+  'edit_picture',
+  'svg_extract',
+  'svg_edit',
+  'write_svg',
 ])
 
 export function toolPartName(part: { type: string; toolName?: string }): string | undefined {
